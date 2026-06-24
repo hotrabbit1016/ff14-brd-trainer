@@ -61,15 +61,13 @@ type Keybind = {
 
 type SettingsState = {
   gcd: number;
-  gcdTolerance: number;
-  ogcdTolerance: number;
   queueWindow: number;
-  latency: number;
-  animationLock: "normal" | "strict";
-  allowDoubleWeave: boolean;
+  ping: number;
+  frameRate: number;
+  animationLock: number;
+  allowEarlyPull: boolean;
   showHints: boolean;
   sound: boolean;
-  metronome: boolean;
   procMode: boolean;
 };
 
@@ -123,15 +121,13 @@ const defaultKeybinds: Keybind[] = [
 
 const defaultSettings: SettingsState = {
   gcd: 2.5,
-  gcdTolerance: 250,
-  ogcdTolerance: 250,
   queueWindow: 500,
-  latency: 45,
-  animationLock: "normal",
-  allowDoubleWeave: true,
+  ping: 45,
+  frameRate: 60,
+  animationLock: 620,
+  allowEarlyPull: false,
   showHints: true,
   sound: false,
-  metronome: false,
   procMode: true,
 };
 
@@ -319,6 +315,10 @@ function loadState() {
   }
 }
 
+function normalizeSettings(settings: Partial<SettingsState> | null | undefined): SettingsState {
+  return { ...defaultSettings, ...(settings ?? {}) };
+}
+
 function normalizeKey(event: KeyboardEvent | React.KeyboardEvent) {
   const key = event.key.length === 1 ? event.key.toUpperCase() : event.key;
   return `${event.ctrlKey ? "Ctrl+" : ""}${key}`;
@@ -350,9 +350,25 @@ function priorityLabel(priority: Priority) {
 
 function inputWindow(event: TimelineEvent, settings: SettingsState) {
   if (event.kind === "GCD") {
-    return { early: settings.queueWindow, late: settings.gcdTolerance };
+    return { early: settings.queueWindow, late: 280 };
   }
-  return { early: event.early, late: settings.ogcdTolerance };
+  return { early: event.early, late: Math.max(event.late, 320) };
+}
+
+function clientInputDelay(settings: SettingsState) {
+  return 1000 / Math.max(30, settings.frameRate);
+}
+
+function outboundLatency(settings: SettingsState) {
+  return Math.max(0, settings.ping / 2);
+}
+
+function effectiveActionDelta(delta: number, settings: SettingsState) {
+  return delta + clientInputDelay(settings) + outboundLatency(settings);
+}
+
+function effectiveAnimationLock(settings: SettingsState) {
+  return settings.animationLock + settings.ping;
 }
 
 function calcVerdict(
@@ -361,19 +377,20 @@ function calcVerdict(
   settings: SettingsState,
   secondsToNextGcd: number | null
 ): Attempt["verdict"] {
-  const abs = Math.abs(delta);
+  const effectiveDelta = effectiveActionDelta(delta, settings);
   if (expected.kind === "GCD" && delta >= -settings.queueWindow && delta <= -120) return "Queued";
   if (
     expected.kind !== "GCD" &&
     secondsToNextGcd !== null &&
-    secondsToNextGcd * 1000 < (settings.animationLock === "strict" ? 760 : 650)
+    secondsToNextGcd * 1000 - Math.max(0, effectiveDelta) < effectiveAnimationLock(settings)
   ) {
     return "Clip";
   }
+  const abs = Math.abs(effectiveDelta);
   if (abs <= 120) return "Perfect";
   const window = inputWindow(expected, settings);
-  if (delta >= -window.early && delta <= window.late) return "Good";
-  return delta < 0 ? "Early" : "Late";
+  if (effectiveDelta >= -window.early && effectiveDelta <= window.late) return "Good";
+  return effectiveDelta < 0 ? "Early" : "Late";
 }
 
 function formatDelta(delta: number | null) {
@@ -434,7 +451,7 @@ function App() {
   const [tab, setTab] = React.useState("train");
   const [keybinds, setKeybinds] = React.useState<Keybind[]>(stored?.keybinds ?? defaultKeybinds);
   const [rotations, setRotations] = React.useState<Rotation[]>(stored?.rotations ?? rotationsSeed);
-  const [settings, setSettings] = React.useState<SettingsState>(stored?.settings ?? defaultSettings);
+  const [settings, setSettings] = React.useState<SettingsState>(normalizeSettings(stored?.settings));
   const [selectedRotationId, setSelectedRotationId] = React.useState(rotations[0]?.id ?? "opener-2gcd");
   const [isRunning, setIsRunning] = React.useState(false);
   const [startAt, setStartAt] = React.useState<number | null>(null);
@@ -546,7 +563,7 @@ function App() {
       .filter((event) => !completedIds.has(event.id))
       .map((event) => ({
         event,
-        delta: (at - event.time) * 1000 - settings.latency,
+        delta: (at - event.time) * 1000,
       }))
       .filter(({ event, delta }) => {
         const window = inputWindow(event, settings);
@@ -564,8 +581,8 @@ function App() {
           expectedSkill: firstUpcoming.skill,
           expectedKey: firstUpcoming.key,
           actualKey,
-          delta: (at - firstUpcoming.time) * 1000 - settings.latency,
-          verdict: "Pull",
+          delta: (at - firstUpcoming.time) * 1000,
+          verdict: settings.allowEarlyPull ? "Early" : "Pull",
           at,
         };
       } else {
@@ -1042,23 +1059,23 @@ function App() {
       {tab === "settings" && (
         <section className="panel settingsPanel">
           <SettingNumber label="GCD 長度" value={settings.gcd} step={0.01} onChange={(gcd) => setSettings({ ...settings, gcd })} />
-          <SettingNumber label="GCD 判定寬容度 ms" value={settings.gcdTolerance} step={10} onChange={(gcdTolerance) => setSettings({ ...settings, gcdTolerance })} />
-          <SettingNumber label="oGCD 判定寬容度 ms" value={settings.ogcdTolerance} step={10} onChange={(ogcdTolerance) => setSettings({ ...settings, ogcdTolerance })} />
-          <SettingNumber label="技能佇列窗口 ms" value={settings.queueWindow} step={10} onChange={(queueWindow) => setSettings({ ...settings, queueWindow })} />
-          <SettingNumber label="延遲模擬 ms" value={settings.latency} step={5} onChange={(latency) => setSettings({ ...settings, latency })} />
+          <SettingNumber label="Action Queue 窗口 ms" value={settings.queueWindow} step={10} onChange={(queueWindow) => setSettings({ ...settings, queueWindow })} />
+          <SettingNumber label="Ping 往返 ms" value={settings.ping} step={5} onChange={(ping) => setSettings({ ...settings, ping })} />
+          <SettingNumber label="動畫鎖基準 ms" value={settings.animationLock} step={10} onChange={(animationLock) => setSettings({ ...settings, animationLock })} />
           <label className="settingLine">
-            <span>動畫鎖模擬</span>
-            <select value={settings.animationLock} onChange={(event) => setSettings({ ...settings, animationLock: event.target.value as SettingsState["animationLock"] })}>
-              <option value="normal">普通</option>
-              <option value="strict">嚴格</option>
+            <span>前端 FPS / 輸入輪詢</span>
+            <select value={settings.frameRate} onChange={(event) => setSettings({ ...settings, frameRate: Number(event.target.value) })}>
+              <option value={30}>30 FPS</option>
+              <option value={60}>60 FPS</option>
+              <option value={120}>120 FPS</option>
+              <option value={144}>144 FPS</option>
             </select>
           </label>
           {[
-            ["allowDoubleWeave", "允許雙插"],
+            ["allowEarlyPull", "允許倒數搶開"],
             ["showHints", "顯示下一步提示"],
             ["sound", "啟用錯誤音效"],
-            ["metronome", "啟用節拍器"],
-            ["procMode", "簡化 proc / 資源模擬"],
+            ["procMode", "使用 80% Repertoire proc 模擬"],
           ].map(([key, label]) => (
             <label className="toggleLine" key={key}>
               <span>{label}</span>
@@ -1340,7 +1357,7 @@ function playFeedbackSound(verdict: Attempt["verdict"]) {
   const oscillator = context.createOscillator();
   const gain = context.createGain();
   const good = verdict === "Queued" || verdict === "Perfect" || verdict === "Good";
-  const bad = verdict === "Wrong" || verdict === "Clip" || verdict === "Miss";
+  const bad = verdict === "Wrong" || verdict === "Clip" || verdict === "Miss" || verdict === "Pull";
   oscillator.frequency.value = good ? 880 : bad ? 180 : 420;
   oscillator.type = good ? "sine" : "square";
   gain.gain.setValueAtTime(0.001, context.currentTime);
@@ -1366,19 +1383,20 @@ function InputFeelPanel({
   lastFeedback: Feedback | null;
 }) {
   const window = currentEvent ? inputWindow(currentEvent, settings) : null;
-  const delta = currentEvent ? (now - currentEvent.time) * 1000 - settings.latency : null;
+  const rawDelta = currentEvent ? (now - currentEvent.time) * 1000 : null;
+  const releaseDelta = rawDelta !== null ? effectiveActionDelta(rawDelta, settings) : null;
   const position =
-    window && delta !== null
-      ? Math.max(0, Math.min(100, ((delta + window.early) / (window.early + window.late)) * 100))
+    window && rawDelta !== null
+      ? Math.max(0, Math.min(100, ((rawDelta + window.early) / (window.early + window.late)) * 100))
       : 0;
   const weaveMs = nextGcd ? Math.max(0, (nextGcd.time - now) * 1000) : null;
-  const lockMs = settings.animationLock === "strict" ? 760 : 650;
+  const lockMs = effectiveAnimationLock(settings);
   const feel =
     !currentEvent
       ? "等待下一個輸入窗口"
-      : currentEvent.kind === "GCD" && delta !== null && delta < -120
+      : currentEvent.kind === "GCD" && rawDelta !== null && rawDelta < -120
         ? "GCD queue 可按"
-        : currentEvent.kind !== "GCD" && weaveMs !== null && weaveMs < lockMs
+      : currentEvent.kind !== "GCD" && weaveMs !== null && weaveMs < lockMs
           ? "Weave 危險，容易 clip"
           : "輸入窗口內";
 
@@ -1388,7 +1406,7 @@ function InputFeelPanel({
         <strong>{feel}</strong>
         <span>
           {currentEvent
-            ? `${currentEvent.skill} / ${currentEvent.key} / ${formatDelta(delta)}`
+            ? `${currentEvent.skill} / ${currentEvent.key} / 釋放${formatDelta(releaseDelta)}`
             : "看 rotation display 的掃描線準備下一鍵"}
         </span>
       </div>
@@ -1399,7 +1417,7 @@ function InputFeelPanel({
         <i style={{ left: `${position}%` }} />
       </div>
       <div className="weaveGauge">
-        <span>下一個 GCD</span>
+        <span>下一個 GCD / 鎖 {Math.round(lockMs)}ms</span>
         <strong>{weaveMs === null ? "-" : `${Math.round(weaveMs)}ms`}</strong>
         <em className={weaveMs !== null && weaveMs < lockMs ? "danger" : "safe"}>
           {weaveMs !== null && weaveMs < lockMs ? "Clip risk" : "Safe weave"}
