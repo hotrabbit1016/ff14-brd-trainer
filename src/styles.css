@@ -125,9 +125,9 @@ h1 {
 
 .trainGrid {
   display: grid;
-  grid-template-columns: minmax(260px, 0.54fr) minmax(620px, 1.46fr);
+  grid-template-columns: minmax(210px, 0.42fr) minmax(700px, 1.58fr);
   grid-template-rows: auto auto auto;
-  gap: 14px;
+  gap: 12px;
   align-items: start;
 }
 
@@ -143,6 +143,10 @@ h1 {
 .reportHero,
 .metricCard {
   padding: 16px;
+}
+
+.timelinePanel {
+  padding: 12px;
 }
 
 .focusPanel {
@@ -182,11 +186,11 @@ h1 {
 }
 
 .track {
-  height: 12px;
+  height: 8px;
   border-radius: 999px;
   background: #090b0e;
   overflow: hidden;
-  margin-bottom: 14px;
+  margin-bottom: 8px;
 }
 
 .trackFill {
@@ -196,13 +200,13 @@ h1 {
 
 .rhythmPanel {
   display: grid;
-  gap: 12px;
+  gap: 9px;
 }
 
 .currentWindow {
   display: grid;
-  gap: 7px;
-  padding: 12px;
+  gap: 5px;
+  padding: 9px;
   border-radius: 8px;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.025));
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -223,7 +227,7 @@ h1 {
 
 .currentWindow strong {
   color: #fff4d8;
-  font-size: 1.1rem;
+  font-size: 0.96rem;
   line-height: 1.25;
 }
 
@@ -233,8 +237,8 @@ h1 {
   font-style: normal;
   color: #111316;
   background: #f2c36d;
-  padding: 0.25rem 0.45rem;
-  border-radius: 6px;
+  padding: 0.18rem 0.36rem;
+  border-radius: 5px;
   font-weight: 900;
 }
 
@@ -245,34 +249,34 @@ h1 {
 .rhythmStats {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
+  gap: 6px;
 }
 
 .rhythmStats div {
   display: grid;
   gap: 3px;
-  padding: 8px;
+  padding: 6px;
   border-radius: 7px;
   background: rgba(255, 255, 255, 0.045);
 }
 
 .rhythmStats strong {
   color: #f4f0e8;
-  font-size: 1.2rem;
+  font-size: 1rem;
 }
 
 .upcomingList {
   display: grid;
-  gap: 8px;
+  gap: 6px;
 }
 
 .upcomingItem {
   display: grid;
-  grid-template-columns: 42px minmax(0, 1fr) auto;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 9px;
-  padding: 8px;
-  border-radius: 8px;
+  gap: 7px;
+  padding: 6px;
+  border-radius: 7px;
   background: rgba(255, 255, 255, 0.042);
   border: 1px solid rgba(255, 255, 255, 0.07);
 }
@@ -283,16 +287,16 @@ h1 {
 }
 
 .upcomingIcon {
-  width: 38px;
+  width: 30px;
   aspect-ratio: 1;
   display: grid;
   place-items: center;
   overflow: hidden;
-  border-radius: 7px;
+  border-radius: 6px;
   background: #26303a;
   border: 1px solid rgba(255, 255, 255, 0.16);
   color: #ffe3a7;
-  font-size: 0.78rem;
+  font-size: 0.68rem;
   font-weight: 900;
 }
 
@@ -305,7 +309,8 @@ h1 {
 .upcomingItem b {
   display: block;
   color: #dce3ea;
-  line-height: 1.28;
+  font-size: 0.82rem;
+  line-height: 1.22;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
