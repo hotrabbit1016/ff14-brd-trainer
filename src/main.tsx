@@ -1465,7 +1465,7 @@ function RotationDisplay({
               <div className="tokenIcon">
                 <SkillIcon skill={event.skill} />
               </div>
-              <span>{event.key}</span>
+              <span className="tokenKey">{event.key}</span>
             </div>
           );
         })}

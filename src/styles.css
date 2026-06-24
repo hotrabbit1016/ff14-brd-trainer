@@ -1368,14 +1368,14 @@ h1 {
 
 .rotationRail {
   position: relative;
-  height: 154px;
+  height: 176px;
   margin: 12px 0 10px;
   overflow-x: hidden;
   overflow-y: hidden;
   border-radius: 8px;
   background:
-    linear-gradient(180deg, transparent 0 42%, rgba(214, 155, 58, 0.12) 42% 43%, transparent 43% 100%),
-    linear-gradient(180deg, transparent 0 70%, rgba(116, 210, 168, 0.1) 70% 71%, transparent 71% 100%),
+    linear-gradient(180deg, transparent 0 38%, rgba(214, 155, 58, 0.12) 38% 39%, transparent 39% 100%),
+    linear-gradient(180deg, transparent 0 72%, rgba(116, 210, 168, 0.1) 72% 73%, transparent 73% 100%),
     linear-gradient(180deg, #111820, #090c10);
 }
 
@@ -1397,7 +1397,7 @@ h1 {
 
 .rotationRail::after {
   content: "oGCD / Utility";
-  bottom: 12px;
+  bottom: 16px;
 }
 
 .rotationPlayhead {
@@ -1425,12 +1425,12 @@ h1 {
 
 .rotationToken {
   position: absolute;
-  top: 22px;
+  top: 20px;
   display: grid;
   justify-items: center;
-  gap: 5px;
-  width: 74px;
-  padding-top: 16px;
+  gap: 4px;
+  width: 76px;
+  padding-top: 15px;
   transform: translateX(-50%);
   transition: transform 0.12s ease, filter 0.12s ease, opacity 0.12s ease;
   will-change: left, transform;
@@ -1440,15 +1440,15 @@ h1 {
 .rotationToken.ogcd,
 .rotationToken.mechanic,
 .rotationToken.state {
-  top: 86px;
-  width: 58px;
+  top: 100px;
+  width: 64px;
 }
 
 .rotationToken small {
   position: absolute;
   top: 0;
   color: #8f9aa5;
-  font-size: 0.68rem;
+  font-size: 0.66rem;
   font-weight: 900;
 }
 
@@ -1469,7 +1469,7 @@ h1 {
 .rotationToken.ogcd .tokenIcon,
 .rotationToken.mechanic .tokenIcon,
 .rotationToken.state .tokenIcon {
-  width: 46px;
+  width: 44px;
   border-color: rgba(116, 210, 168, 0.52);
 }
 
@@ -1501,17 +1501,37 @@ h1 {
   object-fit: cover;
 }
 
-.rotationToken span {
-  max-width: 84px;
+.rotationToken .tokenKey {
+  min-width: 28px;
+  max-width: 76px;
   color: #dce3ea;
   background: rgba(0, 0, 0, 0.58);
-  border-radius: 5px;
-  padding: 0.12rem 0.3rem;
-  font-size: 0.72rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  padding: 0.12rem 0.36rem;
+  font-size: 0.7rem;
   font-weight: 900;
+  line-height: 1.2;
+  text-align: center;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.rotationToken.ogcd .tokenKey,
+.rotationToken.mechanic .tokenKey,
+.rotationToken.state .tokenKey {
+  max-width: 68px;
+  color: #dff9ec;
+  background: rgba(13, 45, 37, 0.88);
+  border-color: rgba(116, 210, 168, 0.36);
+  font-size: 0.66rem;
+}
+
+.rotationToken.mechanic .tokenKey {
+  color: #ffe0dd;
+  background: rgba(76, 27, 25, 0.9);
+  border-color: rgba(255, 117, 111, 0.38);
 }
 
 .rotationToken.Queued .tokenIcon,
