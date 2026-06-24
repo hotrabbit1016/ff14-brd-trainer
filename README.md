@@ -6,6 +6,8 @@ FF14 吟遊詩人鍵位、爆發軸與高壓窗口訓練器。
 
 職業量譜以 CSS 重建遊戲內 Normal Mode 的結構，避免截圖素材殘留數字、背景或透明邊緣。資源邏輯依照歌曲、Repertoire、Soul Voice、Coda 與技能施放事件推進。
 
+完整產品規格與目前實作細節見 [docs/SPEC.md](docs/SPEC.md)。
+
 ## 本機使用
 
 ```bash

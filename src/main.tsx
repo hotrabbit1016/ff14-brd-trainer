@@ -95,8 +95,8 @@ const defaultKeybinds: Keybind[] = [
   { skill: "魔法爆裂", key: "1", role: "gcd", zone: "left" },
   { skill: "輝煌箭", key: "R", role: "gcd", zone: "left" },
   { skill: "伶牙俐齒", key: "2", role: "gcd", zone: "left" },
-  { skill: "烈毒咬箭", key: "3", role: "gcd", zone: "left" },
-  { skill: "狂風蝕箭", key: "4", role: "gcd", zone: "left" },
+  { skill: "狂風蝕箭", key: "3", role: "gcd", zone: "left" },
+  { skill: "烈毒咬箭", key: "4", role: "gcd", zone: "left" },
   { skill: "光明神的返場餘音", key: "Q", role: "buff", zone: "left" },
   { skill: "紛亂箭 / 共鳴箭", key: "E", role: "ogcd", zone: "left" },
   { skill: "側風誘導箭", key: "F", role: "ogcd", zone: "left" },
@@ -190,9 +190,9 @@ const rotationsSeed: Rotation[] = [
     duration: 22,
     description: "短前置，快速把歌曲、團輔、爆發藥與核心 oGCD 壓進開場。",
     events: [
-      ev("2-1", 0, "GCD", "狂風蝕箭", "4", "core", "上第一個 DoT"),
+      ev("2-1", 0, "GCD", "狂風蝕箭", "3", "core", "上第一個 DoT"),
       ev("2-2", 0.68, "oGCD", "放浪神的小步舞曲", "Ctrl+1", "core", "開歌拿 Wanderer Coda"),
-      ev("2-3", 2.5, "GCD", "烈毒咬箭", "3", "core", "上第二個 DoT"),
+      ev("2-3", 2.5, "GCD", "烈毒咬箭", "4", "core", "上第二個 DoT"),
       ev("2-4", 3.16, "oGCD", "光明神的最終樂章", "C", "core", "開場 1 Coda 也要進團輔"),
       ev("2-5", 3.85, "oGCD", "戰鬥之聲", "V", "core", "團輔核心"),
       ev("2-6", 5, "GCD", "魔法爆裂", "1", "medium", "保持 GCD 運轉"),
@@ -213,9 +213,9 @@ const rotationsSeed: Rotation[] = [
     duration: 24,
     description: "較穩定的前置，讓左手爆發鍵壓力略降，適合新鍵位熟悉。",
     events: [
-      ev("3-1", 0, "GCD", "狂風蝕箭", "4", "core"),
+      ev("3-1", 0, "GCD", "狂風蝕箭", "3", "core"),
       ev("3-2", 0.7, "oGCD", "放浪神的小步舞曲", "Ctrl+1", "core"),
-      ev("3-3", 2.5, "GCD", "烈毒咬箭", "3", "core"),
+      ev("3-3", 2.5, "GCD", "烈毒咬箭", "4", "core"),
       ev("3-4", 5, "GCD", "魔法爆裂", "1", "medium"),
       ev("3-5", 5.68, "oGCD", "光明神的最終樂章", "C", "core"),
       ev("3-6", 6.36, "oGCD", "戰鬥之聲", "V", "core"),
@@ -377,8 +377,8 @@ function calcVerdict(
   settings: SettingsState,
   secondsToNextGcd: number | null
 ): Attempt["verdict"] {
+  if (isQueuedGcd(delta, expected, settings)) return "Queued";
   const effectiveDelta = effectiveActionDelta(delta, settings);
-  if (expected.kind === "GCD" && delta >= -settings.queueWindow && delta <= -120) return "Queued";
   if (
     expected.kind !== "GCD" &&
     secondsToNextGcd !== null &&
@@ -391,6 +391,14 @@ function calcVerdict(
   const window = inputWindow(expected, settings);
   if (effectiveDelta >= -window.early && effectiveDelta <= window.late) return "Good";
   return effectiveDelta < 0 ? "Early" : "Late";
+}
+
+function isQueuedGcd(delta: number, event: TimelineEvent, settings: SettingsState) {
+  return event.kind === "GCD" && delta >= -settings.queueWindow && delta <= -120;
+}
+
+function scoredDelta(delta: number, event: TimelineEvent, settings: SettingsState) {
+  return isQueuedGcd(delta, event, settings) ? 0 : effectiveActionDelta(delta, settings);
 }
 
 function formatDelta(delta: number | null) {
@@ -472,7 +480,6 @@ function App() {
   });
   const nextEvents = selectedRotation.events.filter((event) => event.time > now).slice(0, 5);
   const completedIds = new Set(attempts.map((attempt) => attempt.eventId).filter(Boolean));
-  const progress = Math.max(0, Math.min(100, (now / selectedRotation.duration) * 100));
   const visibleRotationEvents = selectedRotation.events.filter(
     (event) => event.time >= now - 5 && event.time <= now + 25
   );
@@ -569,9 +576,13 @@ function App() {
         const window = inputWindow(event, settings);
         return delta >= -window.early && delta <= window.late + 120;
       })
-      .sort((a, b) => Math.abs(a.delta) - Math.abs(b.delta));
-    const expected = candidates[0]?.event;
-    const delta = candidates[0]?.delta ?? null;
+      .sort((a, b) => Math.abs(scoredDelta(a.delta, a.event, settings)) - Math.abs(scoredDelta(b.delta, b.event, settings)));
+    const matchingCandidates = candidates.filter(
+      ({ event }) => event.key.toUpperCase() === actualKey.toUpperCase()
+    );
+    const selectedCandidate = matchingCandidates[0] ?? candidates[0];
+    const expected = selectedCandidate?.event;
+    const delta = selectedCandidate?.delta ?? null;
     let attempt: Attempt;
     if (!expected) {
       const firstUpcoming = selectedRotation.events.find((event) => !completedIds.has(event.id) && event.time >= 0);
@@ -610,13 +621,14 @@ function App() {
       const nextGcd = selectedRotation.events.find(
         (event) => event.kind === "GCD" && event.time > at && event.id !== expected.id
       );
+      const verdict = calcVerdict(delta, expected, settings, nextGcd ? nextGcd.time - at : null);
       attempt = {
         eventId: expected.id,
         expectedSkill: expected.skill,
         expectedKey: expected.key,
         actualKey,
-        delta,
-        verdict: calcVerdict(delta, expected, settings, nextGcd ? nextGcd.time - at : null),
+        delta: verdict === "Queued" ? 0 : scoredDelta(delta, expected, settings),
+        verdict,
         at,
       };
     }
@@ -722,58 +734,6 @@ function App() {
 
       {tab === "train" && (
         <section className="trainGrid">
-          <aside className="panel timelinePanel rhythmPanel">
-            <div className="panelHeader">
-              <span>節奏監控</span>
-              <strong>{now.toFixed(1)}s</strong>
-            </div>
-            <div className="track">
-              <div className="trackFill" style={{ width: `${progress}%` }} />
-            </div>
-
-            <div className={`currentWindow ${currentEvent ? "active" : ""}`}>
-              <span>{now < 0 ? "準備戰鬥" : currentEvent ? "判定窗口" : "等待下一拍"}</span>
-              <strong>{currentEvent?.skill ?? nextEvents[0]?.skill ?? "無事件"}</strong>
-              <em>{currentEvent?.key ?? nextEvents[0]?.key ?? "-"}</em>
-            </div>
-
-            <div className="rhythmStats">
-              <div>
-                <span>搶開</span>
-                <strong>{attempts.filter((attempt) => attempt.verdict === "Pull").length}</strong>
-              </div>
-              <div>
-                <span>漏按</span>
-                <strong>{stats.misses.length}</strong>
-              </div>
-              <div>
-                <span>誤觸</span>
-                <strong>{stats.wrong}</strong>
-              </div>
-            </div>
-
-            <div className="upcomingList" aria-label="接下來技能">
-              {nextEvents.slice(0, 6).map((event) => {
-                const secondsAway = event.time - now;
-                return (
-                  <div
-                    className={`upcomingItem ${event.kind.toLowerCase()} ${event.priority}`}
-                    key={event.id}
-                  >
-                    <div className="upcomingIcon">
-                      <SkillIcon skill={event.skill} />
-                    </div>
-                    <div>
-                      <span>{secondsAway <= 0 ? "now" : `+${secondsAway.toFixed(1)}s`}</span>
-                      <b>{event.skill}</b>
-                    </div>
-                    <em>{event.key}</em>
-                  </div>
-                );
-              })}
-            </div>
-          </aside>
-
           <section className="panel focusPanel">
             <div className="trainingControls">
               <select value={selectedRotationId} onChange={(event) => setSelectedRotationId(event.target.value)}>
@@ -789,6 +749,12 @@ function App() {
               <button onClick={stopTraining}>
                 <Square size={18} /> 停止
               </button>
+            </div>
+
+            <div className={`focusCue ${currentEvent ? "active" : ""}`}>
+              <span>{now < 0 ? "準備戰鬥" : currentEvent ? "判定窗口" : "下一拍"}</span>
+              <strong>{currentEvent?.skill ?? nextEvents[0]?.skill ?? "無事件"}</strong>
+              <em>{currentEvent?.key ?? nextEvents[0]?.key ?? "-"}</em>
             </div>
 
             <div className="combatState">
@@ -833,6 +799,7 @@ function App() {
               attempts={attempts}
               now={now}
               duration={selectedRotation.duration}
+              lastFeedback={feedback}
             />
 
             <InputFeelPanel
@@ -1384,7 +1351,9 @@ function InputFeelPanel({
 }) {
   const window = currentEvent ? inputWindow(currentEvent, settings) : null;
   const rawDelta = currentEvent ? (now - currentEvent.time) * 1000 : null;
-  const releaseDelta = rawDelta !== null ? effectiveActionDelta(rawDelta, settings) : null;
+  const queuedPreview = currentEvent && rawDelta !== null ? isQueuedGcd(rawDelta, currentEvent, settings) : false;
+  const releaseDelta =
+    currentEvent && rawDelta !== null ? scoredDelta(rawDelta, currentEvent, settings) : null;
   const position =
     window && rawDelta !== null
       ? Math.max(0, Math.min(100, ((rawDelta + window.early) / (window.early + window.late)) * 100))
@@ -1394,8 +1363,8 @@ function InputFeelPanel({
   const feel =
     !currentEvent
       ? "等待下一個輸入窗口"
-      : currentEvent.kind === "GCD" && rawDelta !== null && rawDelta < -120
-        ? "GCD queue 可按"
+      : queuedPreview
+        ? "GCD 已進佇列窗口"
       : currentEvent.kind !== "GCD" && weaveMs !== null && weaveMs < lockMs
           ? "Weave 危險，容易 clip"
           : "輸入窗口內";
@@ -1406,7 +1375,7 @@ function InputFeelPanel({
         <strong>{feel}</strong>
         <span>
           {currentEvent
-            ? `${currentEvent.skill} / ${currentEvent.key} / 釋放${formatDelta(releaseDelta)}`
+            ? `${currentEvent.skill} / ${currentEvent.key} / ${queuedPreview ? "Queue ready" : `釋放${formatDelta(releaseDelta)}`}`
             : "看 rotation display 的掃描線準備下一鍵"}
         </span>
       </div>
@@ -1432,16 +1401,24 @@ function RotationDisplay({
   attempts,
   now,
   duration,
+  lastFeedback,
 }: {
   events: TimelineEvent[];
   attempts: Attempt[];
   now: number;
   duration: number;
+  lastFeedback: Feedback | null;
 }) {
   const centerX = 220;
   const pixelsPerSecond = 74;
+  const railFeedback =
+    lastFeedback?.verdict === "Queued" || lastFeedback?.verdict === "Perfect" || lastFeedback?.verdict === "Good"
+      ? "hit"
+      : lastFeedback
+        ? "bad"
+        : "";
   return (
-    <section className="rotationDisplay" aria-label="Rotation display">
+    <section className={`rotationDisplay ${railFeedback}`} aria-label="Rotation display">
       <div className="rotationHeader">
         <span>Rotation Display</span>
         <strong>{now.toFixed(1)}s / {duration.toFixed(1)}s</strong>
@@ -1466,6 +1443,7 @@ function RotationDisplay({
                 <SkillIcon skill={event.skill} />
               </div>
               <span className="tokenKey">{event.key}</span>
+              {attempt && <b className="tokenVerdict">{attempt.verdict}</b>}
             </div>
           );
         })}
