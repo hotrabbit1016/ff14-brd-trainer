@@ -147,6 +147,9 @@ h1 {
 .focusPanel {
   position: relative;
   overflow: hidden;
+  width: 100%;
+  max-width: 1540px;
+  justify-self: center;
 }
 
 .heatmap {
@@ -155,6 +158,9 @@ h1 {
 
 .trainingSummaryPanel {
   grid-column: 1 / -1;
+  width: 100%;
+  max-width: 1540px;
+  justify-self: center;
 }
 
 .rotationPanel {
@@ -1179,18 +1185,50 @@ h1 {
   font-size: 0.82rem;
 }
 
-.queueGauge {
+.ffxivReleaseGauge {
   position: relative;
   height: 38px;
   display: grid;
-  grid-template-columns: 48% 25% 27%;
+  grid-template-columns: minmax(0, 1fr) 132px 132px;
   overflow: hidden;
   border-radius: 7px;
   background: #111820;
   border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 0, 0, 0.56),
+    inset 0 -12px 18px rgba(0, 0, 0, 0.28);
 }
 
-.queueGauge span {
+.ffxivReleaseGauge::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: var(--recast-progress);
+  background:
+    linear-gradient(90deg, rgba(120, 132, 144, 0.16), rgba(204, 221, 231, 0.22)),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent);
+  border-right: 2px solid rgba(255, 255, 255, 0.52);
+  box-shadow: 0 0 14px rgba(255, 255, 255, 0.18);
+  pointer-events: none;
+}
+
+.ffxivReleaseGauge::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--queue-start);
+  right: 0;
+  background:
+    linear-gradient(90deg, rgba(116, 210, 168, 0.06), rgba(116, 210, 168, 0.24)),
+    repeating-linear-gradient(135deg, transparent 0 8px, rgba(255, 255, 255, 0.05) 8px 16px);
+  border-left: 1px solid rgba(116, 210, 168, 0.5);
+  pointer-events: none;
+}
+
+.ffxivReleaseGauge span {
+  position: relative;
+  z-index: 2;
   display: grid;
   place-items: center;
   font-size: 0.72rem;
@@ -1198,19 +1236,76 @@ h1 {
   color: rgba(255, 255, 255, 0.72);
 }
 
-.queueZone {
-  background: rgba(116, 210, 168, 0.22);
+.recastTrackLabel {
+  justify-items: start;
+  padding-left: 10px;
+  color: #9ca8b3;
 }
 
-.hitZone {
-  background: rgba(242, 195, 109, 0.25);
+.queueTrackLabel {
+  color: #bcefd7;
 }
 
-.lateZone {
-  background: rgba(255, 117, 111, 0.2);
+.readyTrackLabel {
+  color: #ffe0a3;
 }
 
-.queueGauge i {
+.ffxivReleaseGauge.queue {
+  border-color: rgba(116, 210, 168, 0.72);
+  box-shadow:
+    inset 0 0 18px rgba(116, 210, 168, 0.12),
+    0 0 16px rgba(116, 210, 168, 0.12);
+}
+
+.ffxivReleaseGauge.queued {
+  border-color: rgba(116, 210, 168, 0.86);
+  box-shadow:
+    inset 0 0 20px rgba(116, 210, 168, 0.18),
+    0 0 18px rgba(116, 210, 168, 0.16);
+}
+
+.ffxivReleaseGauge.queued .readyTrackLabel {
+  color: #07100d;
+  background: #74d2a8;
+}
+
+.ffxivReleaseGauge.animationLock {
+  border-color: rgba(180, 194, 208, 0.36);
+}
+
+.ffxivReleaseGauge.animationLock::before {
+  background:
+    linear-gradient(90deg, rgba(120, 132, 144, 0.08), rgba(180, 194, 208, 0.16)),
+    repeating-linear-gradient(135deg, transparent 0 6px, rgba(255, 255, 255, 0.04) 6px 12px);
+}
+
+.ffxivReleaseGauge.ready {
+  border-color: rgba(242, 195, 109, 0.75);
+  box-shadow:
+    inset 0 0 18px rgba(242, 195, 109, 0.13),
+    0 0 16px rgba(242, 195, 109, 0.12);
+}
+
+.ffxivReleaseGauge.ready .readyTrackLabel {
+  color: #111316;
+  background: #f2c36d;
+}
+
+.ffxivReleaseGauge.late,
+.ffxivReleaseGauge.weaveRisk {
+  border-color: rgba(255, 117, 111, 0.72);
+  box-shadow:
+    inset 0 0 18px rgba(255, 117, 111, 0.12),
+    0 0 16px rgba(255, 117, 111, 0.12);
+}
+
+.ffxivReleaseGauge.late .readyTrackLabel,
+.ffxivReleaseGauge.weaveRisk .readyTrackLabel {
+  color: #1d0908;
+  background: #ff756f;
+}
+
+.ffxivReleaseGauge i {
   position: absolute;
   top: -4px;
   bottom: -4px;
@@ -1218,6 +1313,12 @@ h1 {
   background: #ffffff;
   box-shadow: 0 0 14px rgba(255, 255, 255, 0.9);
   transform: translateX(-50%);
+  left: var(--recast-progress);
+  z-index: 3;
+}
+
+.ffxivReleaseGauge.idle i {
+  opacity: 0;
 }
 
 .weaveGauge {
@@ -1364,6 +1465,7 @@ h1 {
 }
 
 .rotationToken .tokenIcon {
+  position: relative;
   width: 62px;
   aspect-ratio: 1;
   border-radius: 8px;
@@ -1375,6 +1477,17 @@ h1 {
   color: #ffe3a7;
   font-weight: 900;
   box-shadow: 0 8px 18px rgba(0, 0, 0, 0.38);
+}
+
+.rotationToken .tokenIcon::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.24), transparent 34%),
+    linear-gradient(180deg, transparent 48%, rgba(0, 0, 0, 0.28));
 }
 
 .rotationToken.ogcd .tokenIcon,
@@ -1406,6 +1519,45 @@ h1 {
   filter: grayscale(0.35);
 }
 
+.rotationToken.cooling:not(.past) .tokenIcon img {
+  filter: grayscale(0.9) brightness(0.48);
+}
+
+.rotationToken.cooling:not(.past) .tokenKey {
+  color: #b9c1ca;
+}
+
+.rotationToken.notReady .tokenIcon {
+  border-color: #ff8a61;
+  box-shadow:
+    0 0 0 3px rgba(255, 117, 111, 0.34),
+    0 0 26px rgba(255, 117, 111, 0.58),
+    0 10px 22px rgba(0, 0, 0, 0.44);
+}
+
+.rotationToken.notReady .tokenKey {
+  color: #1d0908;
+  background: #ff8a61;
+  border-color: rgba(255, 255, 255, 0.56);
+}
+
+.rotationToken.notReady::after {
+  content: "CD";
+  position: absolute;
+  top: -10px;
+  left: calc(50% + 18px);
+  z-index: 9;
+  padding: 2px 5px;
+  border-radius: 999px;
+  color: #1d0908;
+  background: #ff8a61;
+  border: 1px solid rgba(255, 255, 255, 0.62);
+  font-size: 0.55rem;
+  font-weight: 900;
+  line-height: 1;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.42);
+}
+
 .rotationToken img {
   width: 100%;
   height: 100%;
@@ -1427,6 +1579,87 @@ h1 {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.tokenGaugeBadges {
+  position: absolute;
+  left: 50%;
+  bottom: -18px;
+  display: flex;
+  gap: 3px;
+  max-width: 92px;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.tokenGaugeBadges i {
+  min-width: 0;
+  padding: 2px 5px;
+  border-radius: 999px;
+  color: #07100d;
+  background: #74d2a8;
+  border: 1px solid rgba(255, 255, 255, 0.62);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.38);
+  font-size: 0.52rem;
+  font-style: normal;
+  font-weight: 950;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.tokenGaugeBadges i.song,
+.tokenGaugeBadges i.coda {
+  color: #1b1202;
+  background: #f2c36d;
+}
+
+.tokenGaugeBadges i.soul,
+.tokenGaugeBadges i.spender {
+  color: #16080d;
+  background: #ff9ab4;
+}
+
+.gaugeTimelineMarker {
+  position: absolute;
+  top: 78px;
+  display: grid;
+  justify-items: center;
+  gap: 3px;
+  width: 52px;
+  transform: translateX(-50%);
+  z-index: 3;
+  pointer-events: none;
+}
+
+.gaugeTimelineMarker i {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: #74d2a8;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  box-shadow: 0 0 0 4px rgba(116, 210, 168, 0.16), 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.gaugeTimelineMarker span {
+  max-width: 60px;
+  padding: 2px 5px;
+  border-radius: 999px;
+  color: #dff9ec;
+  background: rgba(13, 45, 37, 0.88);
+  border: 1px solid rgba(116, 210, 168, 0.34);
+  font-size: 0.56rem;
+  font-weight: 900;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.gaugeTimelineMarker.current i {
+  animation: tokenHit 0.4s ease-out;
+  box-shadow: 0 0 0 5px rgba(116, 210, 168, 0.28), 0 0 20px rgba(116, 210, 168, 0.74);
+}
+
+.gaugeTimelineMarker.past {
+  opacity: 0.45;
 }
 
 .rotationToken.ogcd .tokenKey,
@@ -1533,15 +1766,15 @@ h1 {
 
 .trainingSummaryPanel {
   display: grid;
-  grid-template-columns: minmax(0, 1.45fr) minmax(280px, 0.55fr);
-  gap: 14px;
-  align-items: start;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 0.28fr);
+  gap: 12px;
+  align-items: stretch;
 }
 
 .summaryMetrics {
   display: grid;
-  grid-template-columns: repeat(7, minmax(94px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(7, minmax(92px, 1fr));
+  gap: 8px;
 }
 
 .statPanel .metric {
@@ -1549,12 +1782,12 @@ h1 {
 }
 
 .trainingSummaryPanel .metric {
-  min-height: 76px;
-  padding: 10px;
+  min-height: 62px;
+  padding: 9px 10px;
 }
 
 .metric strong {
-  font-size: 1.28rem;
+  font-size: 1.18rem;
 }
 
 .metric em {
@@ -1565,15 +1798,17 @@ h1 {
 }
 
 .recentLog h3 {
-  margin: 8px 0 10px;
+  margin: 0 0 8px;
+  font-size: 0.92rem;
 }
 
 .logItem {
   display: grid;
   grid-template-columns: 1fr auto auto;
   gap: 8px;
-  padding: 8px 0;
+  padding: 6px 0;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 0.82rem;
 }
 
 .Queued b,
@@ -1604,31 +1839,137 @@ h1 {
 }
 
 .heatKey {
-  min-height: 68px;
-  padding: 9px;
+  min-height: 78px;
+  padding: 8px;
   border-radius: 8px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   background: #0f1318;
-  transition: transform 0.12s ease, background 0.12s ease;
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  text-align: left;
+  transition:
+    transform 0.12s ease,
+    background 0.12s ease,
+    border-color 0.12s ease,
+    box-shadow 0.12s ease;
 }
 
-.heatKey b,
-.heatKey span {
+.heatIcon,
+.heatText,
+.heatText b,
+.heatText span {
   display: block;
 }
 
-.heatKey span {
+.heatIcon {
+  position: relative;
+  width: 42px;
+  height: 42px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.16), rgba(0, 0, 0, 0.08)),
+    #26303a;
+  color: #ffe3a7;
+  font-size: 1rem;
+  font-weight: 900;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.22),
+    inset 0 -10px 18px rgba(0, 0, 0, 0.28),
+    0 5px 12px rgba(0, 0, 0, 0.32);
+}
+
+.heatIcon img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.heatIcon::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.3), transparent 34%),
+    linear-gradient(180deg, transparent 50%, rgba(0, 0, 0, 0.26));
+}
+
+.cooldownShade {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  background: linear-gradient(180deg, rgba(3, 5, 8, 0.82), rgba(3, 5, 8, 0.92));
+  opacity: 0.92;
+  transform: scaleY(var(--cooldown-progress));
+  transform-origin: top;
+  pointer-events: none;
+}
+
+.cooldownText {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  color: #f4f0e8;
+  font-size: 1.05rem;
+  font-style: normal;
+  font-weight: 900;
+  text-shadow:
+    0 2px 2px #000,
+    0 0 8px rgba(0, 0, 0, 0.92);
+  pointer-events: none;
+}
+
+.heatText {
+  min-width: 0;
+}
+
+.heatText b {
+  color: #f4f0e8;
+  font-size: 0.92rem;
+}
+
+.heatText span {
   color: #9ca8b3;
   font-size: 0.72rem;
   line-height: 1.35;
-  margin-top: 6px;
+  margin-top: 5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.heatKey.empty {
+  opacity: 0.58;
+}
+
+.heatKey.empty .heatIcon {
+  background: #151a20;
+  color: #5d6874;
+}
+
+.heatKey.cooling .heatIcon img {
+  filter: grayscale(0.88) brightness(0.5);
+}
+
+.heatKey.cooling .heatText b {
+  color: #b9c1ca;
 }
 
 .heatKey.Queued,
 .heatKey.Perfect,
 .heatKey.Good {
   background: rgba(116, 210, 168, 0.28);
-  transform: translateY(-2px);
+  border-color: rgba(116, 210, 168, 0.72);
+  box-shadow: 0 0 0 3px rgba(116, 210, 168, 0.18), 0 0 22px rgba(116, 210, 168, 0.18);
+  transform: translateY(-2px) scale(1.015);
 }
 
 .heatKey.Late,
@@ -1636,12 +1977,27 @@ h1 {
 .heatKey.Clip,
 .heatKey.Pull {
   background: rgba(242, 195, 109, 0.28);
-  transform: translateY(-2px);
+  border-color: rgba(242, 195, 109, 0.72);
+  box-shadow: 0 0 0 3px rgba(242, 195, 109, 0.18), 0 0 22px rgba(242, 195, 109, 0.16);
+  transform: translateY(-2px) scale(1.015);
 }
 
 .heatKey.Wrong {
   background: rgba(255, 117, 111, 0.32);
-  transform: translateY(-2px);
+  border-color: rgba(255, 117, 111, 0.72);
+  box-shadow: 0 0 0 3px rgba(255, 117, 111, 0.18), 0 0 22px rgba(255, 117, 111, 0.16);
+  transform: translateY(-2px) scale(1.015);
+}
+
+.heatKey.Good .heatIcon,
+.heatKey.Perfect .heatIcon,
+.heatKey.Queued .heatIcon,
+.heatKey.Late .heatIcon,
+.heatKey.Early .heatIcon,
+.heatKey.Clip .heatIcon,
+.heatKey.Pull .heatIcon,
+.heatKey.Wrong .heatIcon {
+  filter: brightness(1.25);
 }
 
 .widePanel {
@@ -1785,6 +2141,189 @@ h1 {
 .toggleLine input {
   width: 24px;
   height: 24px;
+}
+
+@media (min-width: 1600px) {
+  .appShell {
+    width: min(1880px, calc(100vw - 56px));
+    padding-top: 28px;
+  }
+
+  .topbar {
+    grid-template-columns: minmax(0, 1fr) minmax(420px, 600px);
+    gap: 32px;
+  }
+
+  .tabs {
+    grid-template-columns: repeat(5, minmax(180px, 1fr));
+  }
+
+  .trainGrid {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto auto;
+    gap: 14px;
+  }
+
+  .focusPanel {
+    grid-column: 1 / -1;
+    grid-row: 1;
+  }
+
+  .trainingSummaryPanel {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 0.24fr);
+    align-self: start;
+  }
+
+  .summaryMetrics {
+    grid-template-columns: repeat(7, minmax(104px, 1fr));
+  }
+
+  .trainingSummaryPanel .metric {
+    min-height: 62px;
+  }
+
+  .heatmap {
+    grid-column: 1 / -1;
+    grid-row: 3;
+  }
+
+  .heatKeys {
+    grid-template-columns: repeat(13, minmax(96px, 1fr));
+  }
+
+  .keybindGrid {
+    grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  }
+
+  .widePanel {
+    min-height: calc(100vh - 178px);
+  }
+
+  .analysisGrid {
+    grid-template-columns: 1.35fr repeat(3, minmax(190px, 0.45fr));
+  }
+}
+
+@media (min-width: 2200px) {
+  .appShell {
+    width: min(2320px, calc(100vw - 72px));
+    padding-top: 16px;
+  }
+
+  .topbar {
+    margin-bottom: 10px;
+  }
+
+  .sourceNote {
+    font-size: 0.86rem;
+    line-height: 1.45;
+  }
+
+  h1 {
+    font-size: 2.2rem;
+  }
+
+  .tabs {
+    margin-bottom: 10px;
+  }
+
+  .trainGrid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .focusPanel,
+  .trainingSummaryPanel {
+    max-width: 1680px;
+  }
+
+  .focusPanel,
+  .statPanel,
+  .trainingSummaryPanel,
+  .heatmap,
+  .rotationPanel,
+  .widePanel,
+  .settingsPanel,
+  .analysisPanel,
+  .reportHero,
+  .metricCard {
+    padding: 14px;
+  }
+
+  .trainingControls {
+    margin-bottom: 10px;
+  }
+
+  .focusCue {
+    margin-bottom: 8px;
+    padding: 8px 10px;
+  }
+
+  .combatState {
+    grid-template-columns: repeat(4, minmax(180px, 1fr));
+    margin-bottom: 6px;
+  }
+
+  .combatState div,
+  .metric {
+    padding: 8px 10px;
+  }
+
+  .ffxivBardGauge {
+    margin-bottom: 4px;
+  }
+
+  .ffxivGaugeBody {
+    height: 157px;
+    transform: scale(0.88);
+  }
+
+  .gaugeCallout {
+    width: 268px;
+    margin-top: -4px;
+    font-size: 0.72rem;
+  }
+
+  .rotationRail {
+    height: 188px;
+    margin: 8px 0 8px;
+  }
+
+  .feelPanel {
+    grid-template-columns: minmax(260px, 0.8fr) minmax(420px, 1.4fr) minmax(200px, 0.55fr);
+    margin-top: 8px;
+    padding: 8px;
+  }
+
+  .hintStrip {
+    margin-top: 8px;
+    min-height: 34px;
+    gap: 6px;
+  }
+
+  .hintStrip span {
+    padding: 0.36rem 0.58rem;
+  }
+
+  .heatKeys {
+    grid-template-columns: repeat(15, minmax(118px, 1fr));
+    gap: 7px;
+  }
+
+  .heatKey {
+    min-height: 72px;
+  }
+
+  .heatIcon {
+    width: 38px;
+    height: 38px;
+  }
+
+  .keybindGrid {
+    grid-template-columns: repeat(auto-fit, minmax(390px, 1fr));
+  }
 }
 
 @media (max-width: 1180px) {

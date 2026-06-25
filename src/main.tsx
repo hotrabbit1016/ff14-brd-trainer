@@ -79,11 +79,35 @@ type Attempt = {
   delta: number | null;
   verdict: "Queued" | "Perfect" | "Good" | "Early" | "Late" | "Clip" | "Miss" | "Wrong" | "Pull";
   at: number;
+  actionAt?: number;
 };
 
 type Feedback = Attempt & {
   id: number;
   skill: string;
+};
+
+type CooldownState = Record<string, { startsAt: number; endsAt: number; duration: number }>;
+
+type QueuedAction = {
+  executeAt: number;
+  key: string;
+  skill: string;
+};
+
+type CombatEngineState = {
+  animationLockUntil: number;
+  gcdReadyAt: number;
+  gcdStartedAt: number;
+  queuedAction: QueuedAction | null;
+};
+
+type ResolvedRelease = {
+  verdict: Attempt["verdict"];
+  actionAt: number;
+  delta: number;
+  queued: boolean;
+  accepted: boolean;
 };
 
 type BardSong = "放浪神的小步舞曲" | "賢者的敘事謠" | "軍神的讚美歌";
@@ -101,19 +125,19 @@ const defaultKeybinds: Keybind[] = [
   { skill: "紛亂箭 / 共鳴箭", key: "E", role: "ogcd", zone: "left" },
   { skill: "側風誘導箭", key: "F", role: "ogcd", zone: "left" },
   { skill: "絕峰箭 / 爆破箭", key: "G", role: "gcd", zone: "left" },
-  { skill: "碎心箭", key: "M4", role: "ogcd", zone: "mouse" },
-  { skill: "九天連箭", key: "扳機", role: "ogcd", zone: "custom" },
-  { skill: "完美音調", key: "M5", role: "proc", zone: "mouse" },
+  { skill: "碎心箭", key: "M5", role: "ogcd", zone: "mouse" },
+  { skill: "九天連箭", key: "Alt+/", role: "ogcd", zone: "custom" },
+  { skill: "完美音調", key: "M4", role: "proc", zone: "mouse" },
   { skill: "猛者強擊", key: "T", role: "buff", zone: "left" },
   { skill: "光明神的最終樂章", key: "C", role: "buff", zone: "left" },
   { skill: "戰鬥之聲", key: "V", role: "buff", zone: "left" },
   { skill: "巧力之幻藥", key: "X", role: "potion", zone: "left" },
   { skill: "行吟", key: "Z", role: "utility", zone: "left" },
-  { skill: "大地神的抒情戀歌", key: "DPI1", role: "utility", zone: "dpi" },
-  { skill: "光陰神的禮讚凱歌", key: "DPI2", role: "utility", zone: "dpi" },
+  { skill: "大地神的抒情戀歌", key: "Alt+,", role: "utility", zone: "dpi" },
+  { skill: "光陰神的禮讚凱歌", key: "Alt+.", role: "utility", zone: "dpi" },
   { skill: "內丹", key: "滾輪中鍵", role: "utility", zone: "wheel" },
-  { skill: "親疏自行", key: "滾輪左傾", role: "utility", zone: "wheel" },
-  { skill: "傷頭", key: "滾輪右傾", role: "utility", zone: "wheel" },
+  { skill: "親疏自行", key: "Alt+N", role: "utility", zone: "wheel" },
+  { skill: "傷頭", key: "Alt+M", role: "utility", zone: "wheel" },
   { skill: "放浪神的小步舞曲", key: "Ctrl+1", role: "song", zone: "ctrl" },
   { skill: "賢者的敘事謠", key: "Ctrl+2", role: "song", zone: "ctrl" },
   { skill: "軍神的讚美歌", key: "Ctrl+3", role: "song", zone: "ctrl" },
@@ -129,6 +153,13 @@ const defaultSettings: SettingsState = {
   showHints: true,
   sound: false,
   procMode: true,
+};
+
+const idleCombatEngine: CombatEngineState = {
+  animationLockUntil: 0,
+  gcdReadyAt: 0,
+  gcdStartedAt: 0,
+  queuedAction: null,
 };
 
 const skillIcons: Record<string, string> = {
@@ -160,6 +191,36 @@ const skillIcons: Record<string, string> = {
   "賢者的敘事謠": "https://xivapi.com/i/002000/002602_hr1.png",
   "軍神的讚美歌": "https://xivapi.com/i/002000/002603_hr1.png",
 };
+
+const skillRecasts: Record<string, number> = {
+  "紛亂箭 / 共鳴箭": 60,
+  "側風誘導箭": 15,
+  "碎心箭": 15,
+  "九天連箭": 15,
+  "完美音調": 1,
+  "猛者強擊": 120,
+  "光明神的最終樂章": 110,
+  "戰鬥之聲": 120,
+  "巧力之幻藥": 270,
+  "行吟": 90,
+  "大地神的抒情戀歌": 120,
+  "光陰神的禮讚凱歌": 45,
+  "內丹": 120,
+  "親疏自行": 120,
+  "傷頭": 30,
+  "放浪神的小步舞曲": 120,
+  "賢者的敘事謠": 120,
+  "軍神的讚美歌": 120,
+};
+
+function skillRecast(skill: string, role: SkillRole, settings: SettingsState) {
+  if (skillRecasts[skill] !== undefined) return skillRecasts[skill];
+  if (role === "gcd") return settings.gcd;
+  if (role === "potion") return 270;
+  if (role === "buff" || role === "song") return 120;
+  if (role === "utility") return 60;
+  return 30;
+}
 
 const ev = (
   id: string,
@@ -200,9 +261,9 @@ const rotationsSeed: Rotation[] = [
       ev("2-8", 6.35, "oGCD", "巧力之幻藥", "X", "high", "藥窗壓力點"),
       ev("2-9", 7.5, "GCD", "輝煌箭", "R", "high", "吃團輔與自身 buff"),
       ev("2-10", 8.18, "oGCD", "紛亂箭 / 共鳴箭", "E", "high", "高價值 oGCD"),
-      ev("2-11", 8.86, "oGCD", "九天連箭", "扳機", "high", "15s 技能，爆發內要求快"),
+      ev("2-11", 8.86, "oGCD", "九天連箭", "Alt+/", "high", "15s 技能，爆發內要求快"),
       ev("2-12", 10, "GCD", "絕峰箭 / 爆破箭", "G", "high", "Soul Voice 高時優先"),
-      ev("2-13", 10.68, "oGCD", "完美音調", "M5", "high", "3 層優先，避免溢出"),
+      ev("2-13", 10.68, "oGCD", "完美音調", "M4", "high", "3 層優先，避免溢出"),
       ev("2-14", 12.5, "GCD", "伶牙俐齒", "2", "core", "刷新雙 DoT"),
       ev("2-15", 13.18, "oGCD", "側風誘導箭", "F", "medium", "可微延，但不要漂出爆發"),
     ],
@@ -224,9 +285,9 @@ const rotationsSeed: Rotation[] = [
       ev("3-9", 8.86, "oGCD", "巧力之幻藥", "X", "high"),
       ev("3-10", 10, "GCD", "伶牙俐齒", "2", "core"),
       ev("3-11", 10.68, "oGCD", "紛亂箭 / 共鳴箭", "E", "high"),
-      ev("3-12", 11.36, "oGCD", "九天連箭", "扳機", "high"),
+      ev("3-12", 11.36, "oGCD", "九天連箭", "Alt+/", "high"),
       ev("3-13", 12.5, "GCD", "絕峰箭 / 爆破箭", "G", "high"),
-      ev("3-14", 13.18, "oGCD", "完美音調", "M5", "high"),
+      ev("3-14", 13.18, "oGCD", "完美音調", "M4", "high"),
     ],
   },
   {
@@ -243,14 +304,14 @@ const rotationsSeed: Rotation[] = [
       ev("b-6", 3.86, "oGCD", "巧力之幻藥", "X", "high"),
       ev("b-7", 5, "GCD", "絕峰箭 / 爆破箭", "G", "high"),
       ev("b-8", 5.68, "oGCD", "紛亂箭 / 共鳴箭", "E", "high"),
-      ev("b-9", 6.36, "oGCD", "九天連箭", "扳機", "high", "第一發九天"),
+      ev("b-9", 6.36, "oGCD", "九天連箭", "Alt+/", "high", "第一發九天"),
       ev("b-10", 7.5, "GCD", "魔法爆裂", "1", "medium"),
-      ev("b-11", 8.18, "oGCD", "完美音調", "M5", "high"),
+      ev("b-11", 8.18, "oGCD", "完美音調", "M4", "high"),
       ev("b-12", 10, "GCD", "輝煌箭", "R", "high"),
       ev("b-13", 10.68, "oGCD", "側風誘導箭", "F", "medium"),
       ev("b-14", 12.5, "GCD", "魔法爆裂", "1", "medium"),
       ev("b-15", 15, "GCD", "伶牙俐齒", "2", "core"),
-      ev("b-16", 21.36, "oGCD", "九天連箭", "扳機", "high", "第二發九天，檢查是否漂出團輔"),
+      ev("b-16", 21.36, "oGCD", "九天連箭", "Alt+/", "high", "第二發九天，檢查是否漂出團輔"),
     ],
   },
   {
@@ -263,17 +324,17 @@ const rotationsSeed: Rotation[] = [
       ev("h-2", 0.68, "oGCD", "光明神的最終樂章", "C", "core"),
       ev("h-3", 1.36, "oGCD", "戰鬥之聲", "V", "core"),
       ev("h-4", 2.5, "GCD", "輝煌箭", "R", "high"),
-      ev("h-5", 3.16, "Mechanic", "傷頭", "滾輪右傾", "mechanic", "機制優先，覆蓋可延後輸出 oGCD", 250, 300),
+      ev("h-5", 3.16, "Mechanic", "傷頭", "Alt+M", "mechanic", "機制優先，覆蓋可延後輸出 oGCD", 250, 300),
       ev("h-6", 3.86, "oGCD", "猛者強擊", "T", "core"),
       ev("h-7", 5, "GCD", "絕峰箭 / 爆破箭", "G", "high"),
       ev("h-8", 5.68, "oGCD", "巧力之幻藥", "X", "high"),
-      ev("h-9", 6.36, "oGCD", "九天連箭", "扳機", "high"),
+      ev("h-9", 6.36, "oGCD", "九天連箭", "Alt+/", "high"),
       ev("h-10", 7.5, "GCD", "魔法爆裂", "1", "medium"),
-      ev("h-11", 8.18, "oGCD", "完美音調", "M5", "high"),
+      ev("h-11", 8.18, "oGCD", "完美音調", "M4", "high"),
       ev("h-12", 10.68, "oGCD", "行吟", "Z", "mechanic", "防禦技能插入，觀察是否打亂爆發"),
       ev("h-13", 12.5, "GCD", "伶牙俐齒", "2", "core"),
       ev("h-14", 15.68, "oGCD", "側風誘導箭", "F", "medium"),
-      ev("h-15", 21.36, "oGCD", "九天連箭", "扳機", "high"),
+      ev("h-15", 21.36, "oGCD", "九天連箭", "Alt+/", "high"),
     ],
   },
 ];
@@ -298,18 +359,54 @@ const keyDisplayOrder = [
   "Ctrl+3",
   "M4",
   "M5",
-  "扳機",
+  "Alt+/",
   "滾輪中鍵",
-  "滾輪左傾",
-  "滾輪右傾",
-  "DPI1",
-  "DPI2",
+  "滾輪上",
+  "滾輪下",
+  "Alt+N",
+  "Alt+M",
+  "Alt+,",
+  "Alt+.",
 ];
+
+const legacyKeyMap: Record<string, string> = {
+  "扳機": "Alt+/",
+  "F24": "Alt+/",
+  "滾輪左傾": "Alt+N",
+  "滾輪右傾": "Alt+M",
+  "DPI1": "Alt+,",
+  "DPI2": "Alt+.",
+};
+
+function mapLegacyKey(key: string) {
+  return legacyKeyMap[key] ?? key;
+}
+
+function normalizeStoredEventKey(skill: string, key: string) {
+  if (skill === "完美音調" && key === "M5") return "M4";
+  if (skill === "碎心箭" && key === "M4") return "M5";
+  return mapLegacyKey(key);
+}
 
 function loadState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : null;
+    if (!raw) return null;
+    const state = JSON.parse(raw);
+    return {
+      ...state,
+      keybinds: state.keybinds?.map((bind: Keybind) => ({
+        ...bind,
+        key: normalizeStoredEventKey(bind.skill, bind.key),
+      })),
+      rotations: state.rotations?.map((rotation: Rotation) => ({
+        ...rotation,
+        events: rotation.events.map((event) => ({
+          ...event,
+          key: normalizeStoredEventKey(event.skill, event.key),
+        })),
+      })),
+    };
   } catch {
     return null;
   }
@@ -319,9 +416,87 @@ function normalizeSettings(settings: Partial<SettingsState> | null | undefined):
   return { ...defaultSettings, ...(settings ?? {}) };
 }
 
-function normalizeKey(event: KeyboardEvent | React.KeyboardEvent) {
-  const key = event.key.length === 1 ? event.key.toUpperCase() : event.key;
-  return `${event.ctrlKey ? "Ctrl+" : ""}${key}`;
+type TrainerInput = {
+  key: string;
+  source: "keyboard" | "mouse" | "wheel";
+};
+
+const MODIFIER_KEYS = new Set(["Alt", "Control", "Meta", "Shift"]);
+const MOUSE_MIDDLE_KEY = "滾輪中鍵";
+const WHEEL_UP_KEY = "滾輪上";
+const WHEEL_DOWN_KEY = "滾輪下";
+
+const codeKeyMap: Record<string, string> = {
+  Backquote: "`",
+  Backslash: "\\",
+  BracketLeft: "[",
+  BracketRight: "]",
+  Comma: ",",
+  Equal: "=",
+  Minus: "-",
+  Period: ".",
+  Quote: "'",
+  Semicolon: ";",
+  Slash: "/",
+  Space: "Space",
+  Tab: "Tab",
+};
+
+function isEditableTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false;
+  return Boolean(
+    target.closest("input, textarea, select, [contenteditable='true'], [role='textbox']")
+  );
+}
+
+function normalizeKeyboardKey(event: KeyboardEvent) {
+  if (MODIFIER_KEYS.has(event.key)) return null;
+  if (/^Key[A-Z]$/.test(event.code)) return event.code.slice(3);
+  if (/^Digit[0-9]$/.test(event.code)) return event.code.slice(5);
+  if (/^F(?:[1-9]|1[0-9]|2[0-4])$/.test(event.code)) return event.code;
+  if (/^Numpad[0-9]$/.test(event.code)) return event.code;
+  if (event.code in codeKeyMap) return codeKeyMap[event.code];
+  if (event.key === " ") return "Space";
+  return event.key.length === 1 ? event.key.toUpperCase() : event.key;
+}
+
+function isModifierKey(event: KeyboardEvent) {
+  return MODIFIER_KEYS.has(event.key);
+}
+
+function normalizeKeyboardInput(event: KeyboardEvent): TrainerInput | null {
+  const key = normalizeKeyboardKey(event);
+  if (!key) return null;
+  const modifiers = [
+    event.ctrlKey ? "Ctrl" : "",
+    event.altKey ? "Alt" : "",
+    event.shiftKey ? "Shift" : "",
+    event.metaKey ? "Meta" : "",
+  ].filter(Boolean);
+  return { key: [...modifiers, key].join("+"), source: "keyboard" };
+}
+
+function normalizeMouseInput(event: MouseEvent): TrainerInput | null {
+  const keyByButton: Record<number, string> = {
+    1: MOUSE_MIDDLE_KEY,
+    3: "M4",
+    4: "M5",
+  };
+  const key = keyByButton[event.button];
+  return key ? { key, source: "mouse" } : null;
+}
+
+function normalizeWheelInput(event: WheelEvent): TrainerInput | null {
+  if (Math.abs(event.deltaY) < Math.abs(event.deltaX)) return null;
+  return {
+    key: event.deltaY < 0 ? WHEEL_UP_KEY : WHEEL_DOWN_KEY,
+    source: "wheel",
+  };
+}
+
+function blockBrowserInput(event: Event) {
+  event.preventDefault();
+  event.stopPropagation();
 }
 
 function roleLabel(role: SkillRole) {
@@ -469,7 +644,12 @@ function App() {
   const [attempts, setAttempts] = React.useState<Attempt[]>([]);
   const [flashKey, setFlashKey] = React.useState<{ key: string; verdict: Attempt["verdict"] } | null>(null);
   const [feedback, setFeedback] = React.useState<Feedback | null>(null);
+  const [cooldowns, setCooldowns] = React.useState<CooldownState>({});
+  const [cooldownClock, setCooldownClock] = React.useState(0);
+  const [combatEngine, setCombatEngine] = React.useState<CombatEngineState>(idleCombatEngine);
   const [calibrating, setCalibrating] = React.useState<string | null>(null);
+  const wheelInputAtRef = React.useRef(0);
+  const flashClearTimerRef = React.useRef<number | null>(null);
   const [calibrationMessage, setCalibrationMessage] = React.useState("尚未開始校準");
 
   const selectedRotation = rotations.find((r) => r.id === selectedRotationId) ?? rotations[0];
@@ -488,6 +668,31 @@ function App() {
   React.useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ keybinds, rotations, settings }));
   }, [keybinds, rotations, settings]);
+
+  React.useEffect(() => {
+    if (!Object.keys(cooldowns).length) return undefined;
+    const timer = window.setInterval(() => {
+      const now = performance.now();
+      setCooldownClock(now);
+      setCooldowns((items) =>
+        Object.fromEntries(Object.entries(items).filter(([, cooldown]) => cooldown.endsAt > now))
+      );
+    }, 100);
+    return () => window.clearInterval(timer);
+  }, [cooldowns]);
+
+  React.useEffect(() => {
+    if (!combatEngine.queuedAction || now < combatEngine.queuedAction.executeAt) return;
+    setCombatEngine((engine) => ({ ...engine, queuedAction: null }));
+  }, [combatEngine.queuedAction, now]);
+
+  React.useEffect(() => {
+    return () => {
+      if (flashClearTimerRef.current !== null) {
+        window.clearTimeout(flashClearTimerRef.current);
+      }
+    };
+  }, []);
 
   React.useEffect(() => {
     if (!isRunning || startAt === null) return undefined;
@@ -527,35 +732,275 @@ function App() {
     return () => cancelAnimationFrame(frame);
   }, [countdownStartAt]);
 
+  function showInputFeedback(key: string, verdict: Attempt["verdict"] = "Good") {
+    if (flashClearTimerRef.current !== null) {
+      window.clearTimeout(flashClearTimerRef.current);
+    }
+    setFlashKey({ key, verdict });
+    flashClearTimerRef.current = window.setTimeout(() => {
+      setFlashKey(null);
+      flashClearTimerRef.current = null;
+    }, 280);
+  }
+
+  function isKnownTrainerKey(key: string) {
+    return keyDisplayOrder.some((item) => item.toUpperCase() === key.toUpperCase()) ||
+      keybinds.some((item) => item.key.toUpperCase() === key.toUpperCase()) ||
+      key === WHEEL_UP_KEY ||
+      key === WHEEL_DOWN_KEY;
+  }
+
+  function keybindForKey(key: string) {
+    return keybinds.find((item) => item.key.toUpperCase() === key.toUpperCase());
+  }
+
+  function triggerCooldownForKey(key: string, delaySeconds = 0) {
+    const bind = keybindForKey(key);
+    if (!bind) return;
+    const duration = skillRecast(bind.skill, bind.role, settings);
+    if (duration <= 0) return;
+    const startsAt = performance.now() + Math.max(0, delaySeconds) * 1000;
+    setCooldowns((items) => ({
+      ...items,
+      [bind.skill]: {
+        duration,
+        startsAt,
+        endsAt: startsAt + duration * 1000,
+      },
+    }));
+    setCooldownClock(performance.now());
+  }
+
+  function isAcceptedRelease(verdict: Attempt["verdict"]) {
+    return verdict === "Queued" || verdict === "Perfect" || verdict === "Good" || verdict === "Late" || verdict === "Clip";
+  }
+
+  function nextGcdAfter(time: number, excludedId?: string) {
+    return selectedRotation.events.find(
+      (event) => event.kind === "GCD" && event.time > time && event.id !== excludedId
+    );
+  }
+
+  function resolveCombatRelease(
+    at: number,
+    event: TimelineEvent,
+    delta: number,
+    engine: CombatEngineState
+  ): ResolvedRelease {
+    const queueWindowSeconds = settings.queueWindow / 1000;
+    const frameSeconds = clientInputDelay(settings) / 1000;
+    const lockedUntil = Math.max(engine.animationLockUntil, 0);
+    const isGcd = event.kind === "GCD";
+
+    if (isGcd) {
+      const queueOpensAt = event.time - queueWindowSeconds;
+      const canQueue = at >= queueOpensAt && at < event.time - frameSeconds;
+      const lockedThroughGcd = lockedUntil > event.time + frameSeconds;
+      if (canQueue) {
+        return {
+          verdict: lockedThroughGcd ? "Clip" : "Queued",
+          actionAt: Math.max(event.time, lockedUntil),
+          delta: lockedThroughGcd ? Math.round((Math.max(event.time, lockedUntil) - event.time) * 1000) : 0,
+          queued: !lockedThroughGcd,
+          accepted: true,
+        };
+      }
+      if (at < queueOpensAt) {
+        return {
+          verdict: event.time <= 0 && settings.allowEarlyPull ? "Early" : "Pull",
+          actionAt: at,
+          delta: Math.round(delta),
+          queued: false,
+          accepted: false,
+        };
+      }
+      if (lockedUntil > at + frameSeconds) {
+        return {
+          verdict: "Clip",
+          actionAt: lockedUntil,
+          delta: Math.round((lockedUntil - event.time) * 1000),
+          queued: true,
+          accepted: true,
+        };
+      }
+      const effectiveDelta = effectiveActionDelta(delta, settings);
+      const abs = Math.abs(effectiveDelta);
+      const window = inputWindow(event, settings);
+      const verdict =
+        abs <= 120
+          ? "Perfect"
+          : effectiveDelta >= -window.early && effectiveDelta <= window.late
+            ? "Good"
+            : effectiveDelta < 0
+              ? "Early"
+              : "Late";
+      return {
+        verdict,
+        actionAt: Math.max(at, event.time),
+        delta: Math.round(effectiveDelta),
+        queued: false,
+        accepted: isAcceptedRelease(verdict),
+      };
+    }
+
+    const actionAt = lockedUntil > at + frameSeconds ? lockedUntil : at;
+    const actionDelta = (actionAt - event.time) * 1000;
+    const window = inputWindow(event, settings);
+    if (actionDelta < -window.early) {
+      return {
+        verdict: "Early",
+        actionAt,
+        delta: Math.round(actionDelta),
+        queued: lockedUntil > at + frameSeconds,
+        accepted: false,
+      };
+    }
+
+    const nextGcd = nextGcdAfter(actionAt, event.id);
+    const clipsNextGcd =
+      nextGcd !== undefined && (nextGcd.time - actionAt) * 1000 < effectiveAnimationLock(settings);
+    if (clipsNextGcd) {
+      return {
+        verdict: "Clip",
+        actionAt,
+        delta: Math.round(actionDelta),
+        queued: lockedUntil > at + frameSeconds,
+        accepted: true,
+      };
+    }
+
+    const effectiveDelta = effectiveActionDelta(actionDelta, settings);
+    const abs = Math.abs(effectiveDelta);
+    const verdict =
+      lockedUntil > at + frameSeconds
+        ? "Queued"
+        : abs <= 120
+          ? "Perfect"
+          : effectiveDelta >= -window.early && effectiveDelta <= window.late
+            ? "Good"
+            : effectiveDelta < 0
+              ? "Early"
+              : "Late";
+    return {
+      verdict,
+      actionAt,
+      delta: verdict === "Queued" ? Math.round(actionDelta) : Math.round(effectiveDelta),
+      queued: verdict === "Queued",
+      accepted: isAcceptedRelease(verdict),
+    };
+  }
+
+  function commitCombatEngineAction(event: TimelineEvent, release: ResolvedRelease) {
+    if (!release.accepted) return;
+    const executeAt = release.actionAt;
+    const lockEndsAt = executeAt + effectiveAnimationLock(settings) / 1000;
+    setCombatEngine((engine) => ({
+      animationLockUntil: Math.max(engine.animationLockUntil, lockEndsAt),
+      gcdReadyAt: event.kind === "GCD" ? executeAt + settings.gcd : engine.gcdReadyAt,
+      gcdStartedAt: event.kind === "GCD" ? executeAt : engine.gcdStartedAt,
+      queuedAction: release.queued
+        ? { executeAt, key: event.key, skill: event.skill }
+        : null,
+    }));
+  }
+
+  function receiveHeatmapInput(key: string) {
+    if ((isRunning && startAt !== null) || countdownStartAt !== null) {
+      handleInput(key);
+      return;
+    }
+    triggerCooldownForKey(key);
+    showInputFeedback(key);
+  }
+
   React.useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement) return;
-      const key = normalizeKey(event);
+    const canReceiveTrainerInput = () => (isRunning && startAt !== null) || countdownStartAt !== null;
+    const shouldOwnBrowserInput = (event: Event) =>
+      !isEditableTarget(event.target) && (calibrating !== null || canReceiveTrainerInput());
+    const dispatchInput = (input: TrainerInput, event: Event) => {
+      if (isEditableTarget(event.target)) return;
+      if (shouldOwnBrowserInput(event)) {
+        blockBrowserInput(event);
+      }
       if (calibrating) {
         setKeybinds((items) =>
-          items.map((item) => (item.skill === calibrating ? { ...item, key } : item))
+          items.map((item) => (item.skill === calibrating ? { ...item, key: input.key } : item))
         );
-        setCalibrationMessage(`${calibrating} 已偵測到 ${key}`);
+        setCalibrationMessage(`${calibrating} 撌脣皜砍 ${input.key}`);
         setCalibrating(null);
         return;
       }
-      if ((!isRunning || !startAt) && countdownStartAt === null) return;
-      handleInput(key);
+      if (!canReceiveTrainerInput()) return;
+      handleInput(input.key);
     };
-    const onMouseUp = (event: MouseEvent) => {
-      if ((!isRunning || !startAt) && countdownStartAt === null) return;
-      const mouseKey =
-        event.button === 1 ? "滾輪中鍵" : event.button === 3 ? "M4" : event.button === 4 ? "M5" : "";
-      if (mouseKey) {
-        event.preventDefault();
-        handleInput(mouseKey);
+    const onEngineKeyDown = (event: KeyboardEvent) => {
+      if (isModifierKey(event) && shouldOwnBrowserInput(event)) {
+        blockBrowserInput(event);
+        return;
+      }
+      if (event.repeat) return;
+      const input = normalizeKeyboardInput(event);
+      if (!input) return;
+      if (!canReceiveTrainerInput() && !calibrating && isKnownTrainerKey(input.key)) {
+        blockBrowserInput(event);
+        triggerCooldownForKey(input.key);
+        showInputFeedback(input.key);
+        return;
+      }
+      dispatchInput(input, event);
+    };
+    const onEngineKeyUp = (event: KeyboardEvent) => {
+      if (shouldOwnBrowserInput(event) && (isModifierKey(event) || event.altKey || event.ctrlKey || event.metaKey)) {
+        blockBrowserInput(event);
       }
     };
-    window.addEventListener("keydown", onKeyDown);
-    window.addEventListener("mouseup", onMouseUp);
+    const onEngineMouseDown = (event: MouseEvent) => {
+      const input = normalizeMouseInput(event);
+      if (!input) return;
+      if (!canReceiveTrainerInput() && !calibrating && isKnownTrainerKey(input.key)) {
+        blockBrowserInput(event);
+        triggerCooldownForKey(input.key);
+        showInputFeedback(input.key);
+        return;
+      }
+      dispatchInput(input, event);
+    };
+    const onEngineAuxClick = (event: MouseEvent) => {
+      if (normalizeMouseInput(event)) blockBrowserInput(event);
+    };
+    const onEngineContextMenu = (event: MouseEvent) => {
+      if (shouldOwnBrowserInput(event)) blockBrowserInput(event);
+    };
+    const onEngineWheel = (event: WheelEvent) => {
+      const input = normalizeWheelInput(event);
+      if (!input) return;
+      const now = performance.now();
+      if (now - wheelInputAtRef.current < 120) {
+        blockBrowserInput(event);
+        return;
+      }
+      wheelInputAtRef.current = now;
+      if (!canReceiveTrainerInput() && !calibrating && isKnownTrainerKey(input.key)) {
+        blockBrowserInput(event);
+        triggerCooldownForKey(input.key);
+        showInputFeedback(input.key);
+        return;
+      }
+      dispatchInput(input, event);
+    };
+    window.addEventListener("keydown", onEngineKeyDown, true);
+    window.addEventListener("keyup", onEngineKeyUp, true);
+    window.addEventListener("mousedown", onEngineMouseDown, true);
+    window.addEventListener("auxclick", onEngineAuxClick, true);
+    window.addEventListener("contextmenu", onEngineContextMenu, true);
+    window.addEventListener("wheel", onEngineWheel, { capture: true, passive: false });
     return () => {
-      window.removeEventListener("keydown", onKeyDown);
-      window.removeEventListener("mouseup", onMouseUp);
+      window.removeEventListener("keydown", onEngineKeyDown, true);
+      window.removeEventListener("keyup", onEngineKeyUp, true);
+      window.removeEventListener("mousedown", onEngineMouseDown, true);
+      window.removeEventListener("auxclick", onEngineAuxClick, true);
+      window.removeEventListener("contextmenu", onEngineContextMenu, true);
+      window.removeEventListener("wheel", onEngineWheel, true);
     };
   });
 
@@ -566,6 +1011,7 @@ function App() {
 
   function handleInput(actualKey: string) {
     const at = inputTime();
+    let acceptedRelease: { event: TimelineEvent; release: ResolvedRelease } | null = null;
     const candidates = selectedRotation.events
       .filter((event) => !completedIds.has(event.id))
       .map((event) => ({
@@ -618,34 +1064,51 @@ function App() {
         at,
       };
     } else {
-      const nextGcd = selectedRotation.events.find(
-        (event) => event.kind === "GCD" && event.time > at && event.id !== expected.id
-      );
-      const verdict = calcVerdict(delta, expected, settings, nextGcd ? nextGcd.time - at : null);
+      const release = resolveCombatRelease(at, expected, delta, combatEngine);
       attempt = {
-        eventId: expected.id,
+        eventId: release.accepted ? expected.id : null,
         expectedSkill: expected.skill,
         expectedKey: expected.key,
         actualKey,
-        delta: verdict === "Queued" ? 0 : scoredDelta(delta, expected, settings),
-        verdict,
+        delta: release.delta,
+        verdict: release.verdict,
         at,
+        actionAt: release.actionAt,
       };
+      if (release.accepted) {
+        acceptedRelease = { event: expected, release };
+      }
+    }
+    if (acceptedRelease) {
+      commitCombatEngineAction(acceptedRelease.event, acceptedRelease.release);
+      triggerCooldownForKey(actualKey, acceptedRelease.release.actionAt - at);
     }
     setAttempts((items) => [...items, attempt]);
-    setFlashKey({ key: actualKey, verdict: attempt.verdict });
+    showInputFeedback(actualKey, attempt.verdict);
     setFeedback({
       ...attempt,
       id: performance.now(),
       skill: attempt.expectedSkill ?? actualKey,
     });
     if (settings.sound) playFeedbackSound(attempt.verdict);
-    window.setTimeout(() => setFlashKey(null), 260);
     window.setTimeout(() => setFeedback(null), 720);
   }
 
-  function startTraining() {
+  function resetTrainingState() {
     setAttempts([]);
+    setFeedback(null);
+    setFlashKey(null);
+    setCooldowns({});
+    setCooldownClock(0);
+    setCombatEngine(idleCombatEngine);
+    if (flashClearTimerRef.current !== null) {
+      window.clearTimeout(flashClearTimerRef.current);
+      flashClearTimerRef.current = null;
+    }
+  }
+
+  function startTraining() {
+    resetTrainingState();
     setNow(-3);
     setStartAt(null);
     setIsRunning(false);
@@ -654,10 +1117,21 @@ function App() {
   }
 
   function stopTraining() {
+    resetTrainingState();
     setCountdownStartAt(null);
     setCountdownValue(null);
     setStartAt(null);
     setIsRunning(false);
+  }
+
+  function chooseRotation(rotationId: string) {
+    resetTrainingState();
+    setCountdownStartAt(null);
+    setCountdownValue(null);
+    setStartAt(null);
+    setIsRunning(false);
+    setNow(0);
+    setSelectedRotationId(rotationId);
   }
 
   function updateRotationEvent(index: number, patch: Partial<TimelineEvent>) {
@@ -702,7 +1176,7 @@ function App() {
       events: selectedRotation.events.map((event) => ({ ...event, id: `copy-${crypto.randomUUID()}` })),
     };
     setRotations((items) => [...items, copy]);
-    setSelectedRotationId(copy.id);
+    chooseRotation(copy.id);
   }
 
   return (
@@ -736,7 +1210,7 @@ function App() {
         <section className="trainGrid">
           <section className="panel focusPanel">
             <div className="trainingControls">
-              <select value={selectedRotationId} onChange={(event) => setSelectedRotationId(event.target.value)}>
+              <select value={selectedRotationId} onChange={(event) => chooseRotation(event.target.value)}>
                 {rotations.map((rotation) => (
                   <option key={rotation.id} value={rotation.id}>
                     {rotation.name}
@@ -751,10 +1225,27 @@ function App() {
               </button>
             </div>
 
+            {feedback && (
+              <div className={`feedbackToast ${feedback.verdict}`} key={feedback.id}>
+                <strong>{feedback.verdict}</strong>
+                <span>{formatDelta(feedback.delta)}</span>
+              </div>
+            )}
+
+            {countdownValue !== null && (
+              <div className="battleCountdown" aria-live="assertive">
+                <div>
+                  <span>戰鬥開始倒數</span>
+                  <strong>{countdownValue || "START"}</strong>
+                  <em>準備戰鬥</em>
+                </div>
+              </div>
+            )}
+
             <div className={`focusCue ${currentEvent ? "active" : ""}`}>
-              <span>{now < 0 ? "準備戰鬥" : currentEvent ? "判定窗口" : "下一拍"}</span>
-              <strong>{currentEvent?.skill ?? nextEvents[0]?.skill ?? "無事件"}</strong>
-              <em>{currentEvent?.key ?? nextEvents[0]?.key ?? "-"}</em>
+              <span>{now < 0 ? "準備戰鬥" : currentEvent ? "判定窗口" : "等待輸入窗口"}</span>
+              <strong>{currentEvent?.skill ?? (now < 0 ? "開場倒數" : "依時間軸準備")}</strong>
+              <em>{currentEvent?.key ?? "-"}</em>
             </div>
 
             <div className="combatState">
@@ -777,33 +1268,21 @@ function App() {
             </div>
             <BardGaugePanel gauge={bardGauge} />
 
-            {feedback && (
-              <div className={`feedbackToast ${feedback.verdict}`} key={feedback.id}>
-                <strong>{feedback.verdict}</strong>
-                <span>{formatDelta(feedback.delta)}</span>
-              </div>
-            )}
-
-            {countdownValue !== null && (
-              <div className="battleCountdown" aria-live="assertive">
-                <div>
-                  <span>戰鬥開始倒數</span>
-                  <strong>{countdownValue || "START"}</strong>
-                  <em>準備戰鬥</em>
-                </div>
-              </div>
-            )}
-
             <RotationDisplay
               events={visibleRotationEvents}
               attempts={attempts}
               now={now}
               duration={selectedRotation.duration}
               lastFeedback={feedback}
+              cooldowns={cooldowns}
+              cooldownClock={cooldownClock}
+              gaugeMarkers={bardGauge.markers}
+              eventGaugeMarkers={bardGauge.eventMarkers}
             />
 
             <InputFeelPanel
               currentEvent={currentEvent}
+              engine={combatEngine}
               now={now}
               settings={settings}
               nextGcd={selectedRotation.events.find((event) => event.kind === "GCD" && event.time > now)}
@@ -846,9 +1325,9 @@ function App() {
           <KeyboardHeatmap
             keybinds={keybinds}
             flashKey={flashKey}
-            onInput={(key) => {
-              if ((isRunning && startAt) || countdownStartAt !== null) handleInput(key);
-            }}
+            cooldowns={cooldowns}
+            cooldownClock={cooldownClock}
+            onInput={receiveHeatmapInput}
           />
         </section>
       )}
@@ -874,7 +1353,7 @@ function App() {
               <button
                 key={rotation.id}
                 className={rotation.id === selectedRotationId ? "active" : ""}
-                onClick={() => setSelectedRotationId(rotation.id)}
+                onClick={() => chooseRotation(rotation.id)}
               >
                 {rotation.name}
               </button>
@@ -1110,6 +1589,13 @@ function isSuccessfulAttempt(attempt: Attempt) {
   return Boolean(attempt.eventId) && attempt.verdict !== "Wrong" && attempt.verdict !== "Miss";
 }
 
+type GaugeMarker = {
+  eventId?: string;
+  at: number;
+  label: string;
+  kind: "song" | "tick" | "spender" | "coda" | "soul";
+};
+
 function songCodaKey(song: BardSong) {
   if (song === "賢者的敘事謠") return "mage";
   if (song === "軍神的讚美歌") return "army";
@@ -1123,6 +1609,21 @@ function isSongSkill(skill: string): skill is BardSong {
 function deterministicRepertoireProc(tickIndex: number, procMode: boolean) {
   if (!procMode) return true;
   return tickIndex % 5 !== 0;
+}
+
+function eventGaugeTickLabel(song: BardSong) {
+  if (song === "放浪神的小步舞曲") return "+Pitch";
+  if (song === "軍神的讚美歌") return "+Army";
+  return "+5 SV";
+}
+
+function plannedGaugeMarkersForEvent(event: TimelineEvent): GaugeMarker[] {
+  if (isSongSkill(event.skill)) return [{ eventId: event.id, at: event.time, label: "+Coda", kind: "song" }];
+  if (event.skill === "九天連箭") return [{ eventId: event.id, at: event.time, label: "+Rep", kind: "tick" }];
+  if (event.skill === "完美音調") return [{ eventId: event.id, at: event.time, label: "Pitch 0", kind: "spender" }];
+  if (event.skill === "絕峰箭 / 爆破箭") return [{ eventId: event.id, at: event.time, label: "SV 0", kind: "soul" }];
+  if (event.skill === "光明神的最終樂章") return [{ eventId: event.id, at: event.time, label: "Coda 0", kind: "coda" }];
+  return [];
 }
 
 function getInitialBardGauge(rotationId: string) {
@@ -1152,9 +1653,9 @@ function getBardGauge(now: number, rotation: Rotation, attempts: Attempt[], proc
     .filter(isSuccessfulAttempt)
     .map((attempt) => {
       const event = eventById.get(attempt.eventId ?? "");
-      return event ? { at: attempt.at, skill: event.skill } : null;
+      return event ? { id: event.id, at: attempt.actionAt ?? Math.max(attempt.at, event.time), skill: event.skill } : null;
     })
-    .filter((item): item is { at: number; skill: string } => Boolean(item))
+    .filter((item): item is { id: string; at: number; skill: string } => Boolean(item))
     .filter((item) => item.at <= now)
     .sort((a, b) => a.at - b.at);
 
@@ -1171,16 +1672,22 @@ function getBardGauge(now: number, rotation: Rotation, attempts: Attempt[], proc
     return active.length ? active[active.length - 1] : null;
   };
 
-  const resourceEvents: Array<{ at: number; type: "skill"; skill: string } | { at: number; type: "tick"; song: BardSong; tickIndex: number }> =
-    successfulSkills.map((item) => ({ at: item.at, type: "skill", skill: item.skill }));
+  const resourceEvents: Array<
+    { at: number; type: "skill"; id: string; skill: string } |
+    { at: number; type: "tick"; song: BardSong; tickIndex: number }
+  > = successfulSkills.map((item) => ({ at: item.at, type: "skill", id: item.id, skill: item.skill }));
+  const gaugeMarkers: GaugeMarker[] = [];
 
   songStarts.forEach((segment, segmentIndex) => {
     const nextStart = songStarts[segmentIndex + 1]?.at ?? Infinity;
-    const end = Math.min(segment.at + SONG_DURATION, nextStart, now);
+    const end = Math.min(segment.at + SONG_DURATION, nextStart, rotation.duration);
     for (let tick = 1; segment.at + tick * 3 <= end; tick += 1) {
       const tickAt = segment.at + tick * 3;
       if (tickAt >= 0 && deterministicRepertoireProc(tick, procMode)) {
-        resourceEvents.push({ at: tickAt, type: "tick", song: segment.song, tickIndex: tick });
+        gaugeMarkers.push({ at: tickAt, label: eventGaugeTickLabel(segment.song), kind: "tick" });
+        if (tickAt <= now) {
+          resourceEvents.push({ at: tickAt, type: "tick", song: segment.song, tickIndex: tick });
+        }
       }
     }
   });
@@ -1208,22 +1715,27 @@ function getBardGauge(now: number, rotation: Rotation, attempts: Attempt[], proc
         codaStates = { ...codaStates, [songCodaKey(event.skill)]: true };
         pitchStacks = 0;
         armyStacks = 0;
+        gaugeMarkers.push({ eventId: event.id, at: event.at, label: "+Coda", kind: "song" });
         return;
       }
       if (event.skill === "九天連箭") {
         grantRepertoire(songAt(event.at)?.song ?? null);
+        gaugeMarkers.push({ eventId: event.id, at: event.at, label: "+Rep", kind: "tick" });
         return;
       }
       if (event.skill === "完美音調") {
         pitchStacks = 0;
+        gaugeMarkers.push({ eventId: event.id, at: event.at, label: "Pitch 0", kind: "spender" });
         return;
       }
       if (event.skill === "絕峰箭 / 爆破箭") {
         soulVoice = 0;
+        gaugeMarkers.push({ eventId: event.id, at: event.at, label: "SV 0", kind: "soul" });
         return;
       }
       if (event.skill === "光明神的最終樂章") {
         codaStates = { mage: false, army: false, wanderer: false };
+        gaugeMarkers.push({ eventId: event.id, at: event.at, label: "Coda 0", kind: "coda" });
       }
     });
 
@@ -1258,6 +1770,12 @@ function getBardGauge(now: number, rotation: Rotation, attempts: Attempt[], proc
     pitchReady,
     pitchAdvice,
     apexReady: soulVoice >= 80,
+    markers: gaugeMarkers.sort((a, b) => a.at - b.at),
+    eventMarkers: gaugeMarkers.reduce<Record<string, GaugeMarker[]>>((items, marker) => {
+      if (!marker.eventId) return items;
+      return { ...items, [marker.eventId]: [...(items[marker.eventId] ?? []), marker] };
+    }, {}),
+    nextMarker: gaugeMarkers.find((marker) => marker.at >= now) ?? null,
   };
 }
 
@@ -1309,7 +1827,13 @@ function BardGaugePanel({ gauge }: { gauge: ReturnType<typeof getBardGauge> }) {
       </div>
       <div className="gaugeCallout">
         <strong>{gauge.pitchAdvice}</strong>
-        <span>{gauge.apexReady ? "Soul Voice 80+：Apex / Blast window" : "Soul Voice building"}</span>
+        <span>
+          {gauge.nextMarker
+            ? `Next ${gauge.nextMarker.label} @ ${gauge.nextMarker.at.toFixed(1)}s`
+            : gauge.apexReady
+              ? "Soul Voice 80+：Apex / Blast window"
+              : "Soul Voice building"}
+        </span>
       </div>
     </section>
   );
@@ -1338,36 +1862,76 @@ function playFeedbackSound(verdict: Attempt["verdict"]) {
 
 function InputFeelPanel({
   currentEvent,
+  engine,
   now,
   settings,
   nextGcd,
   lastFeedback,
 }: {
   currentEvent: TimelineEvent | undefined;
+  engine: CombatEngineState;
   now: number;
   settings: SettingsState;
   nextGcd: TimelineEvent | undefined;
   lastFeedback: Feedback | null;
 }) {
-  const window = currentEvent ? inputWindow(currentEvent, settings) : null;
   const rawDelta = currentEvent ? (now - currentEvent.time) * 1000 : null;
-  const queuedPreview = currentEvent && rawDelta !== null ? isQueuedGcd(rawDelta, currentEvent, settings) : false;
-  const releaseDelta =
-    currentEvent && rawDelta !== null ? scoredDelta(rawDelta, currentEvent, settings) : null;
-  const position =
-    window && rawDelta !== null
-      ? Math.max(0, Math.min(100, ((rawDelta + window.early) / (window.early + window.late)) * 100))
-      : 0;
-  const weaveMs = nextGcd ? Math.max(0, (nextGcd.time - now) * 1000) : null;
+  const isGcd = currentEvent?.kind === "GCD";
   const lockMs = effectiveAnimationLock(settings);
+  const lockRemainingMs = Math.max(0, (engine.animationLockUntil - now) * 1000);
+  const gcdReadyAt = engine.gcdReadyAt || currentEvent?.time || 0;
+  const gcdStartedAt = engine.gcdStartedAt || Math.max(0, gcdReadyAt - settings.gcd);
+  const gcdRemainingMs = Math.max(0, (gcdReadyAt - now) * 1000);
+  const queueOpensAt = gcdReadyAt - settings.queueWindow / 1000;
+  const queueOpen = now >= queueOpensAt && now < gcdReadyAt;
+  const queuedAction = engine.queuedAction && engine.queuedAction.executeAt >= now ? engine.queuedAction : null;
+  const weaveMs = nextGcd ? Math.max(0, (nextGcd.time - now) * 1000) : null;
+  const weaveBudgetMs = weaveMs === null ? null : weaveMs - lockMs;
+  const recastProgress = Math.max(
+    0,
+    Math.min(100, ((now - gcdStartedAt) / Math.max(0.001, gcdReadyAt - gcdStartedAt || settings.gcd)) * 100)
+  );
+  const queueStart = Math.max(
+    0,
+    Math.min(100, ((queueOpensAt - gcdStartedAt) / Math.max(0.001, gcdReadyAt - gcdStartedAt || settings.gcd)) * 100)
+  );
+  const releasePhase =
+    !currentEvent
+      ? "idle"
+      : queuedAction
+        ? "queued"
+        : lockRemainingMs > 0
+          ? "animationLock"
+          : isGcd && queueOpen
+            ? "queue"
+            : isGcd && gcdRemainingMs <= 0
+              ? "ready"
+              : !isGcd && weaveBudgetMs !== null && weaveBudgetMs < 0
+                ? "weaveRisk"
+                : !isGcd
+                  ? "ready"
+                  : "locked";
+  const phaseLabel: Record<typeof releasePhase, string> = {
+    idle: "等待事件",
+    locked: "GCD 轉圈中",
+    queue: "Action Queue",
+    queued: "已佇列",
+    animationLock: "Animation Lock",
+    ready: isGcd ? "可送出 GCD" : "可插入 oGCD",
+    weaveRisk: "Animation lock 風險",
+  };
   const feel =
     !currentEvent
-      ? "等待下一個輸入窗口"
-      : queuedPreview
-        ? "GCD 已進佇列窗口"
-      : currentEvent.kind !== "GCD" && weaveMs !== null && weaveMs < lockMs
-          ? "Weave 危險，容易 clip"
-          : "輸入窗口內";
+      ? "等待輸入窗口"
+      : queuedAction
+        ? `${queuedAction.skill} queued`
+        : lockRemainingMs > 0
+          ? "角色仍在 animation lock"
+          : isGcd
+            ? "GCD Recast / Action Queue"
+            : weaveBudgetMs !== null && weaveBudgetMs < 0
+              ? "oGCD 會 clip 下一個 GCD"
+              : "oGCD Weave Slot";
 
   return (
     <div className={`feelPanel ${lastFeedback?.verdict ?? ""}`}>
@@ -1375,21 +1939,27 @@ function InputFeelPanel({
         <strong>{feel}</strong>
         <span>
           {currentEvent
-            ? `${currentEvent.skill} / ${currentEvent.key} / ${queuedPreview ? "Queue ready" : `釋放${formatDelta(releaseDelta)}`}`
-            : "看 rotation display 的掃描線準備下一鍵"}
+            ? `${currentEvent.skill} / ${currentEvent.key} / ${phaseLabel[releasePhase]}${rawDelta !== null ? ` / ${formatDelta(rawDelta)}` : ""}`
+            : "等待時間軸進入可輸入窗口"}
         </span>
       </div>
-      <div className="queueGauge">
-        <span className="queueZone">Queue</span>
-        <span className="hitZone">Hit</span>
-        <span className="lateZone">Late</span>
-        <i style={{ left: `${position}%` }} />
+      <div
+        className={`ffxivReleaseGauge ${isGcd ? "gcdRelease" : "weaveRelease"} ${releasePhase}`}
+        style={{
+          "--recast-progress": `${recastProgress}%`,
+          "--queue-start": `${queueStart}%`,
+        } as React.CSSProperties}
+      >
+        <span className="recastTrackLabel">{gcdRemainingMs > 0 ? `GCD ${Math.ceil(gcdRemainingMs)}ms` : "GCD ready"}</span>
+        <span className="queueTrackLabel">{queuedAction ? queuedAction.key : queueOpen ? "Queue open" : `${Math.round(lockRemainingMs)}ms lock`}</span>
+        <span className="readyTrackLabel">{phaseLabel[releasePhase]}</span>
+        <i />
       </div>
       <div className="weaveGauge">
         <span>下一個 GCD / 鎖 {Math.round(lockMs)}ms</span>
         <strong>{weaveMs === null ? "-" : `${Math.round(weaveMs)}ms`}</strong>
-        <em className={weaveMs !== null && weaveMs < lockMs ? "danger" : "safe"}>
-          {weaveMs !== null && weaveMs < lockMs ? "Clip risk" : "Safe weave"}
+        <em className={weaveBudgetMs !== null && weaveBudgetMs < 0 ? "danger" : "safe"}>
+          {weaveBudgetMs !== null && weaveBudgetMs < 0 ? `Clip ${Math.round(Math.abs(weaveBudgetMs))}ms` : "Safe weave"}
         </em>
       </div>
     </div>
@@ -1402,47 +1972,108 @@ function RotationDisplay({
   now,
   duration,
   lastFeedback,
+  cooldowns,
+  cooldownClock,
+  gaugeMarkers,
+  eventGaugeMarkers,
 }: {
   events: TimelineEvent[];
   attempts: Attempt[];
   now: number;
   duration: number;
   lastFeedback: Feedback | null;
+  cooldowns: CooldownState;
+  cooldownClock: number;
+  gaugeMarkers: GaugeMarker[];
+  eventGaugeMarkers: Record<string, GaugeMarker[]>;
 }) {
-  const centerX = 220;
-  const pixelsPerSecond = 74;
+  const railRef = React.useRef<HTMLDivElement | null>(null);
+  const [railWidth, setRailWidth] = React.useState(900);
+  React.useEffect(() => {
+    const node = railRef.current;
+    if (!node) return undefined;
+    const updateWidth = () => setRailWidth(node.getBoundingClientRect().width);
+    updateWidth();
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+  const centerX = Math.round(Math.max(132, Math.min(220, railWidth * 0.18)));
+  const pixelsPerSecond = Math.max(52, Math.min(74, railWidth / 18));
   const railFeedback =
     lastFeedback?.verdict === "Queued" || lastFeedback?.verdict === "Perfect" || lastFeedback?.verdict === "Good"
       ? "hit"
       : lastFeedback
         ? "bad"
         : "";
+  const cdNow = cooldownClock || performance.now();
   return (
     <section className={`rotationDisplay ${railFeedback}`} aria-label="Rotation display">
       <div className="rotationHeader">
         <span>Rotation Display</span>
         <strong>{now.toFixed(1)}s / {duration.toFixed(1)}s</strong>
       </div>
-      <div className="rotationRail">
-        <div className="rotationPlayhead" />
+      <div className="rotationRail" ref={railRef}>
+        <div className="rotationPlayhead" style={{ left: `${centerX}px` }} />
+        {gaugeMarkers
+          .filter((marker) => !marker.eventId)
+          .map((marker) => {
+            const x = centerX + (marker.at - now) * pixelsPerSecond;
+            if (x < -72 || x > railWidth + 72) return null;
+            const status = marker.at < now - 0.15 ? "past" : Math.abs(marker.at - now) <= 0.15 ? "current" : "upcoming";
+            return (
+              <div
+                className={`gaugeTimelineMarker ${marker.kind} ${status}`}
+                key={`${marker.kind}-${marker.at}-${marker.label}`}
+                style={{ left: `${x}px` }}
+                title={`${marker.at.toFixed(1)}s ${marker.label}`}
+              >
+                <i />
+                <span>{marker.label}</span>
+              </div>
+            );
+          })}
         {events.map((event) => {
           const attempt = attempts.find((item) => item.eventId === event.id);
+          const gaugeBadges = eventGaugeMarkers[event.id] ?? plannedGaugeMarkersForEvent(event);
           const isCurrent = Math.abs(event.time - now) <= 0.35;
           const isPast = event.time < now - 0.35;
           const status = isCurrent ? "current" : isPast ? "past" : "upcoming";
           const x = centerX + (event.time - now) * pixelsPerSecond;
+          if (x < -92 || x > railWidth + 92) return null;
+          const cooldown = cooldowns[event.skill];
+          const cooldownStarted = Boolean(cooldown && cooldown.startsAt <= cdNow);
+          const remaining = cooldown && cooldownStarted && !isPast ? Math.max(0, (cooldown.endsAt - cdNow) / 1000) : 0;
+          const cooling = Boolean(cooldown && cooldownStarted && remaining > 0);
+          const notReady = cooling && (isCurrent || (event.time > now && event.time - now < 2.5));
+          const cooldownProgress = cooldown ? Math.max(0, Math.min(1, remaining / cooldown.duration)) : 0;
           return (
             <div
-              className={`rotationToken ${event.kind.toLowerCase()} ${event.priority} ${status} ${attempt?.verdict ?? ""}`}
+              className={`rotationToken ${event.kind.toLowerCase()} ${event.priority} ${status} ${attempt?.verdict ?? ""} ${cooling ? "cooling" : ""} ${notReady ? "notReady" : ""}`}
               key={event.id}
-              style={{ left: `${x}px` }}
+              style={{ left: `${x}px`, "--cooldown-progress": cooldownProgress } as React.CSSProperties}
               title={`${event.time.toFixed(1)}s ${event.skill} ${event.key}`}
             >
               <small>{event.time.toFixed(1)}</small>
               <div className="tokenIcon">
                 <SkillIcon skill={event.skill} />
+                {cooling && (
+                  <>
+                    <i className="cooldownShade" />
+                    <em className="cooldownText">{remaining >= 10 ? Math.ceil(remaining) : remaining.toFixed(1)}</em>
+                  </>
+                )}
               </div>
               <span className="tokenKey">{event.key}</span>
+              {gaugeBadges.length > 0 && (
+                <span className="tokenGaugeBadges">
+                  {gaugeBadges.map((marker) => (
+                    <i className={marker.kind} key={`${marker.kind}-${marker.label}`}>
+                      {marker.label}
+                    </i>
+                  ))}
+                </span>
+              )}
               {attempt && <b className="tokenVerdict">{attempt.verdict}</b>}
             </div>
           );
@@ -1460,26 +2091,52 @@ function RotationDisplay({
 function KeyboardHeatmap({
   keybinds,
   flashKey,
+  cooldowns,
+  cooldownClock,
   onInput,
 }: {
   keybinds: Keybind[];
   flashKey: { key: string; verdict: Attempt["verdict"] } | null;
+  cooldowns: CooldownState;
+  cooldownClock: number;
   onInput: (key: string) => void;
 }) {
+  const now = cooldownClock || performance.now();
   return (
     <section className="panel heatmap">
       <div className="panelHeader">
         <span>鍵盤 / 滑鼠熱區</span>
-        <strong>即時亮燈</strong>
+        <strong>按鍵確認</strong>
       </div>
       <div className="heatKeys">
         {keyDisplayOrder.map((key) => {
           const bind = keybinds.find((item) => item.key.toUpperCase() === key.toUpperCase());
           const flash = flashKey?.key.toUpperCase() === key.toUpperCase() ? flashKey.verdict : "";
+          const cooldown = bind ? cooldowns[bind.skill] : null;
+          const cooldownStarted = Boolean(cooldown && cooldown.startsAt <= now);
+          const remaining = cooldown && cooldownStarted ? Math.max(0, (cooldown.endsAt - now) / 1000) : 0;
+          const cooling = Boolean(cooldown && cooldownStarted && remaining > 0);
+          const cooldownProgress = cooldown ? Math.max(0, Math.min(1, remaining / cooldown.duration)) : 0;
           return (
-            <button className={`heatKey ${bind?.zone ?? "empty"} ${flash}`} key={key} onClick={() => onInput(key)}>
-              <b>{key}</b>
-              <span>{bind?.skill ?? "未綁定"}</span>
+            <button
+              className={`heatKey ${bind?.zone ?? "empty"} ${flash} ${cooling ? "cooling" : ""}`}
+              key={key}
+              onClick={() => onInput(key)}
+              style={{ "--cooldown-progress": cooldownProgress } as React.CSSProperties}
+            >
+              <span className="heatIcon" aria-hidden="true">
+                {bind ? <SkillIcon skill={bind.skill} /> : "?"}
+                {cooling && (
+                  <>
+                    <i className="cooldownShade" />
+                    <em className="cooldownText">{remaining >= 10 ? Math.ceil(remaining) : remaining.toFixed(1)}</em>
+                  </>
+                )}
+              </span>
+              <span className="heatText">
+                <b>{key}</b>
+                <span>{bind?.skill ?? "未綁定"}</span>
+              </span>
             </button>
           );
         })}
